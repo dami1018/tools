@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jul  7 16:55:25 2024
+
+@author: 1
+"""
 # 首先是ffmpeg的下载，从官网上有多种下载方式
 # 因为英文不是特别好，所以看的不是很明白
 # 通过fittencode和kimi，
@@ -34,7 +40,7 @@ import ffmpeg
 import os
 import glob
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 # 切割文件函数
 def split_video(input_file, output_folder, num_segments):
@@ -59,7 +65,7 @@ def split_video(input_file, output_folder, num_segments):
             .output(output_file, t=segment_duration, c='copy')
             .run()
         )
-# 获取文件列表和文件创建时间函数
+# 获取文件列表和文件创建时间函数，修改过几次，有报错，是因为文件损坏了，删掉损坏文件就没问题了
 def get_video_files_info(directory):
     video_extensions = ['*.mp4', '*.avi', '*.mkv', '*.mov', '*.flv', '*.wmv']  # 支持的视频文件扩展名
     video_files_info = []
@@ -78,10 +84,61 @@ def get_video_files_info(directory):
             probe = ffmpeg.probe(video_file)
             video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
             duration = float(video_stream['duration'])
-            duration_formatted = str(datetime.timedelta(seconds=duration))
+            duration_formatted = str(timedelta(seconds=duration))
             video_files_info.append((video_file, creation_time_chinese, duration_formatted))
 
     return video_files_info
+# fitten上的新函数，try和except太实用了，可以跳过损坏的函数
+def get_video_files_info(directory):
+    video_extensions = ['*.mp4', '*.avi', '*.mkv', '*.mov', '*.flv', '*.wmv']  # 支持的视频文件扩展名
+    video_files_info = []
+
+    for ext in video_extensions:
+        for video_file in glob.glob(os.path.join(directory, ext)):
+            file_stats = os.stat(video_file)
+            creation_time = datetime.fromtimestamp(file_stats.st_ctime)
+            creation_time_chinese = creation_time.strftime("%Y年%m月%d日 %H时%M分%S秒")
+            
+            try:
+                # 获取视频时长
+                probe = ffmpeg.probe(video_file)
+                video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+                duration = float(video_stream['duration'])
+                duration_formatted = str(timedelta(seconds=duration))
+            except ffmpeg.Error as e:
+                print(f"Error processing file {video_file}: {e.stderr.decode('utf-8')}")
+                duration_formatted = "Unknown"
+            
+            video_files_info.append((video_file, creation_time_chinese, duration_formatted))
+
+    return video_files_info
+
+# 跳过损坏的文件
+def get_video_files_info(directory):
+    video_extensions = ['*.mp4', '*.avi', '*.mkv', '*.mov', '*.flv', '*.wmv']  # 支持的视频文件扩展名
+    video_files_info = []
+
+    for ext in video_extensions:
+        for video_file in glob.glob(os.path.join(directory, ext)):
+            file_stats = os.stat(video_file)
+            creation_time = datetime.fromtimestamp(file_stats.st_ctime)
+            creation_time_chinese = creation_time.strftime("%Y年%m月%d日 %H时%M分%S秒")
+            
+            try:
+                # 获取视频时长
+                probe = ffmpeg.probe(video_file)
+                video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+                duration = float(video_stream['duration'])
+                duration_formatted = str(timedelta(seconds=duration))
+            except ffmpeg.Error as e:
+                print(f"Error processing file {video_file}: {e.stderr.decode('utf-8')}")
+                continue  # 跳过损坏的文件
+            
+            video_files_info.append((video_file, creation_time_chinese, duration_formatted))
+
+    return video_files_info
+
+
 if __name__ == "__main__":
     input_file = r"F:\data\"  # 替换为你的输入视频文件路径
     output_folder = r'D:\tools\deepfake\data10'    # 替换为你想要保存分割视频的文件夹路径
