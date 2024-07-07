@@ -1,0 +1,64 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jul  7 21:21:30 2024
+
+@author: 1
+"""
+# 旨在实现程序自动化
+
+# UI Automation (Windows)
+# AutoIt: 一个用于 Windows 桌面应用程序自动化的脚本语言。
+# UI Automation: Windows 提供的 API，用于自动化 UI 测试。
+# 使用inspect嗅探器 C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64
+# 作为套装一部分不能单独安装
+# 先使用AutoIt框架
+# windows SDK 安装
+'''
+# import autoit
+# stackflow 上的答案，ait 神奇
+# 好像也不行
+import ait
+# 使用inspect程序来查找控件
+# 找到窗口并激活
+autoit.win_wait_active("窗口标题", 5)
+# 人脸
+ait.win_wait_active("AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）", 5)
+# 找到输入框并输入文本
+autoit.control_send("窗口标题", "输入框控件名", "Hello, World!")
+# 找到按钮并点击
+autoit.control_click("窗口标题", "按钮控件名")
+'''
+
+from pywinauto import findwindows
+
+# 获取所有窗口的句柄和标题
+windows = findwindows.find_elements()
+
+for window in windows:
+    print(f"Window Title: {window.window_text()}, Handle: {window.handle}")
+    
+    
+
+from pywinauto import findwindows
+
+# 获取所有窗口的句柄和标题
+windows = findwindows.find_elements()
+
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+
+
+from pywinauto import Application
+
+# 启动应用程序
+app = Application(backend="uia").start("notepad.exe")
+
+# 连接到已运行的应用程序
+app = Application(backend="uia").connect(title_re="")
+
+# 选择主窗口
+dlg = app.window(title="")
+
+# 输入文本
+dlg.type_keys("Hello, World!", with_spaces=True)
+
