@@ -1,0 +1,100 @@
+# 首先是ffmpeg的下载，从官网上有多种下载方式
+# 因为英文不是特别好，所以看的不是很明白
+# 通过fittencode和kimi，
+# 1、tar.gz下载到本地然后cmake预编译，太过于复杂 2、利用sudo 3、通过7z解压 4、下载exe的文件 5、git下载 4和5 修改环境变量
+import ffmpeg
+# 示例：获取视频信息
+# 重新启动，可以正常运行了，应该是在加载ffmpeg的时候还没有安装ffmpeg文件，导致文件引用错误
+path = r'D:\tools\deepfake\data8\@5jy.cc-IPZZ-270_6K-C-00.08.31.860-00.12.57.761-seg1.mp4'
+info = ffmpeg.probe(path)
+
+# info = ffmpeg.probe(r"d:\1.mp4")
+print(info)
+
+import os
+import ffmpeg
+# 查找文件是否存在
+# 确保文件存在
+file_path = r"d:\1.mp4"
+os.path.exists(file_path)
+# ffmpeg -i d:\1.mp4
+# 文件可以正常被识别
+# 比较完备的指令
+if not os.path.exists(file_path):
+    print(f"文件 {file_path} 不存在。")
+else:
+    # 使用绝对路径进行探测
+    info = ffmpeg.probe(file_path)
+    print(info)
+    
+
+
+
+import ffmpeg
+import os
+import glob
+import time
+from datetime import datetime
+import pandas as pd
+# 切割文件函数
+def split_video(input_file, output_folder, num_segments):
+    # 获取视频总时长
+    probe = ffmpeg.probe(input_file)
+    duration = float(next(s for s in probe['streams'] if s['codec_type'] == 'video')['duration'])
+    
+    # 计算每段的时长
+    segment_duration = duration / num_segments
+    
+    # 创建输出文件夹
+    os.makedirs(output_folder, exist_ok=True)
+    
+    # 分割视频
+    for i in range(num_segments):
+        start_time = i * segment_duration
+        file_name = os.path.splitext(os.path.basename(input_file))[0]
+        output_file = os.path.join(output_folder, f'output_{file_name}{i}.mp4')
+        (
+            ffmpeg
+            .input(input_file, ss=start_time)
+            .output(output_file, t=segment_duration, c='copy')
+            .run()
+        )
+# 获取文件列表和文件创建时间函数
+def get_video_files_info(directory):
+    video_extensions = ['*.mp4', '*.avi', '*.mkv', '*.mov', '*.flv', '*.wmv']  # 支持的视频文件扩展名
+    video_files_info = []
+
+    for ext in video_extensions:
+        for video_file in glob.glob(os.path.join(directory, ext)):
+            file_stats = os.stat(video_file)
+            # creation_time = time.ctime(file_stats.st_ctime)
+            # video_files_info.append((video_file, creation_time))
+            
+            creation_time = datetime.fromtimestamp(file_stats.st_ctime)
+            creation_time_chinese = creation_time.strftime("%Y年%m月%d日 %H时%M分%S秒")
+            # 获取文件时长
+            # video_files_info.append((video_file, creation_time_chinese))
+            # 获取视频时长
+            probe = ffmpeg.probe(video_file)
+            video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+            duration = float(video_stream['duration'])
+            duration_formatted = str(datetime.timedelta(seconds=duration))
+            video_files_info.append((video_file, creation_time_chinese, duration_formatted))
+
+    return video_files_info
+if __name__ == "__main__":
+    input_file = r"F:\data\"  # 替换为你的输入视频文件路径
+    output_folder = r'D:\tools\deepfake\data10'    # 替换为你想要保存分割视频的文件夹路径
+    num_segments = 20         # 分割成10份
+    # 运行切割程序
+    split_video(input_file, output_folder, num_segments)
+    
+   
+# 获取文件名
+path = r"F:\data"
+video_list = get_video_files_info(path) 
+# 将列表转化为dataframe
+video_dadta = pd.DataFrame(video_list, columns=['文件路径', '创建时间','文件长度'])
+
+os.path.splitext(os.path.basename(input_file))[0]
+os.path.splitext(os.path.basename(path))[0]
