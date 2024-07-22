@@ -22,7 +22,7 @@ import ait
 # 找到窗口并激活
 autoit.win_wait_active("窗口标题", 5)
 # 人脸
-ait.win_wait_active("AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）", 5)
+ait.win_wait_active("", 5)
 # 找到输入框并输入文本
 autoit.control_send("窗口标题", "输入框控件名", "Hello, World!")
 # 找到按钮并点击
