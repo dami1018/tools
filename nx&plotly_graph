@@ -3,6 +3,8 @@
 import networkx as nx
 import pandas as pd
 from pypinyin import pinyin, lazy_pinyin
+import plotly.graph_objs as go
+import plotly.offline as pyo
 # 数据导入和处理
 path = r"D:\trading\custom.xlsx"
 data = pd.read_excel(path,sheet_name="Sheet1")
