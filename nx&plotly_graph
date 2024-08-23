@@ -13,6 +13,7 @@ re = data[data['客户类型'] !='个人'].reset_index()
 G = nx.Graph()
 for index, row in re.iterrows():
     G.add_edge(row['客户经理'], row['客户名称'])
+pos = nx.spring_layout(G)
 #建立边的对象，并赋值
 edge_trace = go.Scatter(
     x=[],
