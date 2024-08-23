@@ -1,0 +1,340 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Aug 20 09:56:08 2024
+
+@author: csc05176
+"""
+
+import networkx as nx
+import pandas as pd
+path = r"D:\trading\custom.xlsx"
+data = pd.read_excel(path,sheet_name="Sheet1")
+data_num = data.groupby('客户经理').agg(count=('客户名称','size'))
+data_num = data.groupby('客户名称').agg(count=('客户经理','size')).sort_values(by='count',ascending=False)
+re = data[data['客户名称'].str.contains('王伟', na=False)].reset_index()
+# '王伟            '
+re = data[data['客户名称']=='王伟            ']
+re = data.loc[0:500,]
+re = data[data['客户类型'] !='个人'].reset_index()
+G = nx.Graph()
+for index, row in re.iterrows():
+    G.add_edge(row['客户经理'], row['客户名称'])
+print(G.edges)
+print(G.nodes)
+# print(G.edges[1])
+# 计算节点位置
+pos = nx.spring_layout(G)
+
+
+
+import networkx as nx
+import pandas as pd
+import plotly.graph_objs as go
+import plotly.offline as pyo
+
+
+# 创建 Plotly 图形对象
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    # print(edge,edge[0])
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+# 画出线段图
+fig_edge = go.Figure(data=[edge_trace])
+file_name = 'temp.html'
+pyo.plot(fig_edge, filename=file_name)
+
+
+node_trace = go.Scatter(
+    x=[],
+    y=[],
+    text=[],
+    mode='markers+text',  # 添加 'text' 模式
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=10,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+from pypinyin import pinyin, lazy_pinyin
+replace = {}
+for node in G.nodes:
+    replace[node] = ''.join(lazy_pinyin(node))
+for node in G.nodes():
+    x, y = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    # node_trace['text'] += (node,)  # 添加节点标签
+    
+    node_trace['text'] += (''.join(lazy_pinyin(node)),)
+    # print(node)
+    # print(''.join(lazy_pinyin(node)))
+fig_node = go.Figure(data=[node_trace])
+file_name = 'temp.html'
+pyo.plot(fig_node, filename=file_name)
+import chardet
+with open(f'C:\\Users\\csc05176\\{file_name}', 'rb') as file:
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+
+# 使用检测到的编码读取文件内容，html文件出了问题，换一种编码就可以了，按照当前编码读入再用uft8编码写入即可
+with open(f'C:\\Users\\csc05176\\{file_name}', 'r', encoding=encoding) as file:
+    html_content = file.read()
+for node in G.nodes:
+    old_string = replace[node]  # 要替换的旧字符串
+    new_string = node  # 替换后的新字符串
+    html_content = html_content.replace(old_string, new_string)
+    
+with open(f'C:\\Users\\csc05176\\{file_name}', 'w', encoding='utf-8') as file:
+    file.write(html_content)
+
+
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+
+# 创建图表
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='<br>Network graph made with Python',
+                    titlefont=dict(size=16),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    annotations=[dict(
+                        text="Python code: <a href='https://plotly.com/python/network-graphs/'> https://plotly.com/python/network-graphs/</a>",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)],
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+
+# 显示图表
+
+file_name = 'guanxi.html'
+pyo.plot(fig, filename=file_name)  
+with open(f'C:\\Users\\csc05176\\{file_name}', 'rb') as file:
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+with open(f'C:\\Users\\csc05176\\{file_name}', 'r', encoding=encoding) as file:
+    html_content = file.read()
+for node in G.nodes:
+    old_string = replace[node]  # 要替换的旧字符串
+    new_string = node  # 替换后的新字符串
+    html_content = html_content.replace(old_string, new_string)
+    
+with open(f'C:\\Users\\csc05176\\{file_name}', 'w', encoding='utf-8') as file:
+    file.write(html_content)
+
+
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+
+
+file_name = 'guanxi1.html'
+html = pyo.plot(fig, output_type='div', include_plotlyjs='cdn')
+with open(file_name, 'w', encoding='utf-8') as f:
+    f.write(html)
+
+
+file_name = 'client_cumulative_amount.html'  # 确保文件名不包含特殊字符
+fig.write_html(file_name)
+# 显示图表
+fig.show()
+
+
+
+
+
+# 打印图的信息
+print(nx.info(G))
+
+# 可选：绘制图
+import matplotlib.pyplot as plt
+
+nx.draw(G, pos, with_labels=True)
+plt.show()
+
+import plotly
+import plotly.express as px
+# import plotly.io as pio
+import plotly.offline as pyo
+
+gapminder = px.data.gapminder()
+gapminder2007 = gapminder.query('year==2007')
+a = px.scatter(gapminder2007,x='gdpPercap',y='lifeExp')
+a_dalu = px.scatter(gapminder2007,x='gdpPercap',y='lifeExp',color='continent')
+a_dalu_pop = px.scatter(gapminder2007,x='gdpPercap',y='lifeExp',color='continent',size='pop',size_max=60)
+a_dalu_pop = px.scatter(gapminder,x='gdpPercap',y='lifeExp',color='continent',size='pop',size_max=60
+                        ,animation_frame='year',animation_group='country',title='GDP变化')
+a_dalu_pop.update_layout(
+    font=dict(
+        family="SimHei, Arial, sans-serif",  # 使用支持中文的字体
+        size=12,
+        color="Black"
+       
+    )
+)
+
+a_dalu_pop.update_layout(
+    title='Life Expectancy v. Per Capita GDP, 2007',
+    xaxis=dict(
+        title='GDP per capita (2000 dollars)',
+        gridcolor='white',
+        type='log',
+        gridwidth=2,
+    ),
+    yaxis=dict(
+        title='Life Expectancy (years)',
+        gridcolor='white',
+        gridwidth=2,
+    ),
+    paper_bgcolor='rgb(243, 243, 243)',
+    plot_bgcolor='rgb(243, 243, 243)',
+)
+
+
+pyo.plot(a_dalu_pop, filename='gapminder_2007.html')
+
+print(a_dalu_pop.layout.font)
+import pandas as pd
+data = pd.read_csv(r'C:\Users\csc05176\Desktop\py\deeplearning\data\boston_housing_data.csv')
+import matplotlib.font_manager as fm
+
+# 列出所有已安装的字体
+for font in fm.findSystemFonts(fontpaths=None, fontext='ttf'):
+    print(font)
+
+# 检查特定字体是否存在
+font_path = fm.findfont('SimHei')
+print(font_path)
+
+a.write_html(r'd:\gapminder_2007.html')
+a.show()
+# 依赖于其他的包,pip install -U kaleido,暂时装不上 
+image_bytes = a.to_image(format="png")
+# 将图片字节保存为文件
+with open('gapminder_2007.png', 'wb') as f:
+    f.write(image_bytes)
+
+# pio.write_image(a, 'd:\\gapminder_2007.png')
+
+
+# 完整程序
+# 程序包的导入
+import networkx as nx
+import pandas as pd
+from pypinyin import pinyin, lazy_pinyin
+# 数据导入和处理
+path = r"D:\trading\custom.xlsx"
+data = pd.read_excel(path,sheet_name="Sheet1")
+re = data[data['客户类型'] !='个人'].reset_index()
+# 图建立
+G = nx.Graph()
+for index, row in re.iterrows():
+    G.add_edge(row['客户经理'], row['客户名称'])
+#建立边的对象，并赋值
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    # print(edge,edge[0])
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+#建立点对象，并赋值
+#由于plotly在中文显示方面存在问题，所以先将中文转化为拼音，并建立拼音的索引，然后用拼音画图
+node_trace = go.Scatter(
+    x=[],
+    y=[],
+    text=[],
+    mode='markers+text',  # 添加 'text' 模式
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=10,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+
+replace = {}
+for node in G.nodes:
+    replace[node] = ''.join(lazy_pinyin(node))
+for node in G.nodes():
+    x, y = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['text'] += (''.join(lazy_pinyin(node)),)
+# 将节点周边信息导入节点图
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+
+# 绘制图像
+# 创建图表
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='<br>Network graph made with Python',
+                    titlefont=dict(size=16),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    annotations=[dict(
+                        text="Python code: <a href='https://plotly.com/python/network-graphs/'> https://plotly.com/python/network-graphs/</a>",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)],
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+
+# 存储并显示图表
+file_name = 'guanxi.html'
+pyo.plot(fig, filename=file_name)
+# 将拼音内容替换为中文  
+with open(f'C:\\Users\\csc05176\\{file_name}', 'rb') as file:
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+with open(f'C:\\Users\\csc05176\\{file_name}', 'r', encoding=encoding) as file:
+    html_content = file.read()
+for node in G.nodes:
+    old_string = replace[node]  # 要替换的旧字符串
+    new_string = node  # 替换后的新字符串
+    html_content = html_content.replace(old_string, new_string)
+    
+with open(f'C:\\Users\\csc05176\\{file_name}', 'w', encoding='utf-8') as file:
+    file.write(html_content)
