@@ -1,0 +1,284 @@
+# 完整程序七，点击颜色图标相应颜色点以及文本不显示但是再点击并没有恢复
+
+from dash import Dash, dcc, html, dash_table
+from dash.dependencies import Input, Output, State
+import networkx as nx
+import pandas as pd
+from pypinyin import pinyin, lazy_pinyin
+import plotly.graph_objs as go
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+import webbrowser
+import time
+
+# 数据导入和处理
+path = r"D:\python\custom.xlsx"
+data = pd.read_excel(path, sheet_name="Sheet1")
+re = data[data['客户类型'] != '个人'].reset_index()
+
+# 图建立
+G = nx.Graph()
+for index, row in re.iterrows():
+    G.add_edge(row['客户经理'], row['客户名称'])
+pos = nx.spring_layout(G)
+
+# 建立边的对象，并赋值
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+
+# 建立点对象，并赋值
+node_trace = go.Scatter(
+    x=[],
+    y=[],
+    text=[],
+    hovertext=[],
+    mode='markers+text',  # 添加 'text' 模式
+    hoverinfo='text',
+    marker=dict(
+        showscale=False,  # 不显示右侧的颜色显示条
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=[],
+        line=dict(width=2)))
+
+# 根据 re 数据框中的 资产 和 分公司 字段设置节点的大小和颜色
+node_sizes = []
+node_colors = []
+regions = re['分公司'].unique()
+colormap = cm.get_cmap('viridis', len(regions))
+region_color_map = {region: mcolors.rgb2hex(colormap(i)) for i, region in enumerate(regions)}
+
+for node in G.nodes():
+    if node in re['客户经理'].values:
+        node_info = re[re['客户经理'] == node]
+        node_sizes.append(10)
+    else:
+        node_info = re[re['客户名称'] == node]
+        node_sizes.append(min(node_info['当前净资产(普通+信用)_万元'].values[0] / 100, 100))
+    region = node_info['分公司'].values[0]
+    node_colors.append(region_color_map[region])
+
+for node in G.nodes():
+    x, y = pos[node]
+    
+    if node in re['客户经理'].values:
+        node_info = re[re['客户经理']==node]
+        node_text = f"{node}<br>工号: {node_info['客户经理工号'].values[0]}<br>分公司: {node_info['分公司'].values[0]}"
+    if node in re['客户名称'].values:
+        node_info = re[re['客户名称']==node]
+        node_text = f"{node}<br>资产: {node_info['当前净资产(普通+信用)_万元'].values[0]}<br>分公司: {node_info['分公司'].values[0]}" 
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['text'] += (node,)
+    node_trace['hovertext'] += (node_text,) 
+    node_trace['marker']['size'] += (node_sizes.pop(0),)
+    node_trace['marker']['color'] += (node_colors.pop(0),)
+
+# 绘制图像
+# 创建图表
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='<br>证金业务可视化交互系统',
+                    titlefont=dict(size=16),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    annotations=[dict(
+                        text="Python code: <a href='Security Lending'> Security Lending Desk</a>",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)],
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    autosize=True,
+                    template="plotly_white"
+                ))
+
+# 创建 Dash 应用程序
+app = Dash(__name__)
+
+app.layout = html.Div([
+    dcc.Graph(id='network-graph', figure=fig, style={'width': '90vw', 'height': '90vh'}),
+    html.Div([
+        dcc.Input(id='search-input', type='text', placeholder='请输入搜索内容'),
+        dcc.Dropdown(id='node-dropdown', placeholder='请选择', style={'width': '200px'}),
+        html.Div(id='search-output'),
+        dash_table.DataTable(id='search-results', columns=[{"name": i, "id": i} for i in re.columns], style_table={'overflowX': 'auto'})
+    ])
+])
+
+@app.callback(
+    Output('search-output', 'children'),
+    [Input('search-input', 'value')]
+)
+def search_nodes(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        if matching_nodes:
+            return f"相关信息: {', '.join(matching_nodes)}"
+        else:
+            return "No matching nodes found."
+    return ""
+
+@app.callback(
+    Output('node-dropdown', 'options'),
+    [Input('search-input', 'value')]
+)
+def update_dropdown(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        return [{'label': node, 'value': node} for node in matching_nodes]
+    return []
+
+@app.callback(
+    Output('search-results', 'data'),
+    [Input('search-input', 'value')]
+)
+def update_search_results(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_records = re[re.apply(lambda row: any(search_value in str(cell) for cell in row), axis=1)]
+        return matching_records.to_dict('records')
+    return []
+
+@app.callback(
+    Output('network-graph', 'figure'),
+    [Input('node-dropdown', 'value'), Input('network-graph', 'clickData')],
+    [State('network-graph', 'figure')]
+)
+def update_graph(selected_node, click_data, current_fig):
+    le = 0.1
+    step = 1
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return current_fig
+    else:
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if trigger == 'node-dropdown' and selected_node:
+        node = selected_node
+    elif trigger == 'network-graph' and click_data:
+        node = click_data['points'][0]['text']
+    else:
+        return current_fig
+
+    x, y = pos[node]
+    # 创建动画帧
+    frames = []
+    for i in range(11):
+        x_range = [x - le - step * (10-i) , x + le + step * (10-i)]
+        y_range = [y - le - step * (10-i), y + le + step * (10-i)]
+        frame = go.Frame(layout=go.Layout(
+            xaxis=dict(range=x_range),
+            yaxis=dict(range=y_range)
+        ))
+        frames.append(frame)
+    # 更新图表布局和动画帧
+    fig.update_layout(
+        xaxis=dict(range=[x - le, x + le]),
+        yaxis=dict(range=[y - le, y + le]),
+        updatemenus=[dict(
+            type="buttons",
+            buttons=[dict(label="Play", method="animate", args=[None])]
+        )],
+        sliders=[dict(
+            active=0,
+            steps=[dict(method="animate", args=[["frame{}".format(k)], dict(mode="immediate")]) for k in range(11)]
+        )]
+    )
+    fig.frames = frames
+    return fig
+
+# 添加 JavaScript 代码以支持鼠标滚轮缩放
+app.clientside_callback(
+    """
+    function(id) {
+        setTimeout(function() {
+            var plot = document.getElementById(id).querySelector('.js-plotly-plot');
+            if (plot) {
+                var zoomInButton = plot.querySelector('.modebar-btn[data-title="Zoom in"]');
+                var zoomOutButton = plot.querySelector('.modebar-btn[data-title="Zoom out"]');
+
+                plot.onwheel = function(event) {
+                    event.preventDefault();
+                    if (event.deltaY < 0) {
+                        zoomInButton.click();
+                    } else {
+                        zoomOutButton.click();
+                    }
+                };
+
+                var colorLegend = document.createElement('div');
+                colorLegend.style.position = 'absolute';
+                colorLegend.style.top = '10px';
+                colorLegend.style.left = '10px';
+                colorLegend.style.zIndex = '1000';
+                plot.parentNode.appendChild(colorLegend);
+
+                var regions = %s;
+                var regionColorMap = %s;
+                var visibilityMap = {};
+
+                regions.forEach(function(region) {
+                    var colorBox = document.createElement('div');
+                    colorBox.style.display = 'inline-block';
+                    colorBox.style.width = '20px';
+                    colorBox.style.height = '20px';
+                    colorBox.style.backgroundColor = regionColorMap[region];
+                    colorBox.style.marginRight = '5px';
+                    colorBox.style.cursor = 'pointer';
+                    colorBox.dataset.region = region;
+                    colorLegend.appendChild(colorBox);
+
+                    var regionName = document.createElement('span');
+                    regionName.textContent = region;
+                    regionName.style.marginLeft = '5px';
+                    colorLegend.appendChild(regionName);
+
+                    visibilityMap[region] = true;
+
+                    colorBox.onclick = function() {
+                        var region = this.dataset.region;
+                        visibilityMap[region] = !visibilityMap[region];
+                        var newColors = plot.data[1].marker.color.map(function(color, index) {
+                            if (color === regionColorMap[region]) {
+                                return visibilityMap[region] ? regionColorMap[region] : 'rgba(0,0,0,0)';
+                            }
+                            return color;
+                        });
+                        var newTexts = plot.data[1].text.map(function(text, index) {
+                            if (plot.data[1].marker.color[index] === regionColorMap[region]) {
+                                return visibilityMap[region] ? text : '';
+                            }
+                            return text;
+                        });
+                        Plotly.restyle(plot, 'marker.color', [newColors], [1]);
+                        Plotly.restyle(plot, 'text', [newTexts], [1]);
+                        this.style.opacity = visibilityMap[region] ? '1' : '0.5';
+                    };
+                });
+            }
+        }, 100);
+        return window.dash_clientside.no_update;
+    }
+    """ % (regions.tolist(), region_color_map),
+    Output('network-graph', 'id'),
+    [Input('network-graph', 'id')]
+)
+
+if __name__ == '__main__':
+    webbrowser.open('http://127.0.0.1:8050/')
+    app.run_server(debug=True)
