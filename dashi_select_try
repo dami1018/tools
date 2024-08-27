@@ -331,3 +331,187 @@ def update_relationship_map(restyle_data, current_fig):
 if __name__ == "__main__":
     app.run_server(debug=True)
 
+
+
+import pandas as pd
+import numpy as np
+import networkx as nx
+import plotly.graph_objs as go
+from dash import Dash, dcc, html
+from dash.dependencies import Input, Output, State
+
+# 预定义的颜色列表
+COLORS = [
+    '#1f77b4',  # muted blue
+    '#ff7f0e',  # safety orange
+    '#2ca02c',  # cooked asparagus green
+    '#d62728',  # brick red
+    '#9467bd',  # muted purple
+    '#8c564b',  # chestnut brown
+    '#e377c2',  # raspberry yogurt pink
+    '#7f7f7f',  # middle gray
+    '#bcbd22',  # curry yellow-green
+    '#17becf'   # blue-teal
+]
+
+# 示例数据
+data = {
+    'cust': ['A', 'B', 'C', 'D', 'E'],
+    'client': ['B', 'C', 'D', 'E', 'A'],
+    'region': ['North', 'South', 'East', 'West', 'Central']
+}
+result = pd.DataFrame(data)
+
+# 创建NetworkX图
+G = nx.from_pandas_edgelist(result, 'cust', 'client')
+
+# 生成节点的位置
+pos = nx.spring_layout(G)
+nx.set_node_attributes(G, pos, 'pos')
+
+# 为图例分配颜色
+colormap = {region: color for region, color in zip(result["region"].unique(), COLORS)}
+
+# 初始化应用
+app = Dash(__name__)
+
+# 构建横幅
+def build_banner():
+    return html.Div(
+        id="banner",
+        className="banner",
+        children=[
+            html.Img(src=app.get_asset_url("dash-logo.png")),
+            html.H6("Customer-Client Relationship Map"),
+        ],
+    )
+
+# 构建图表标题
+def build_graph_title(title):
+    return html.P(className="graph-title", children=title)
+
+# 生成关系图
+def generate_relationship_plot(G, result, selected_regions):
+    edge_trace = go.Scatter(
+        x=[],
+        y=[],
+        line=dict(width=0.5, color='#888'),
+        hoverinfo='none',
+        mode='lines')
+
+    for edge in G.edges():
+        x0, y0 = G.nodes[edge[0]]['pos']
+        x1, y1 = G.nodes[edge[1]]['pos']
+        edge_trace['x'] += tuple([x0, x1, None])
+        edge_trace['y'] += tuple([y0, y1, None])
+
+    node_trace = go.Scatter(
+        x=[],
+        y=[],
+        text=[],
+        mode='markers',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+            colorscale='YlGnBu',
+            reversescale=True,
+            color=[],
+            size=10,
+            colorbar=dict(
+                thickness=15,
+                title='Region',
+                xanchor='left',
+                titleside='right'
+            ),
+            line=dict(width=2)))
+
+    for node in G.nodes():
+        x, y = G.nodes[node]['pos']
+        node_trace['x'] += tuple([x])
+        node_trace['y'] += tuple([y])
+        node_trace['text'] += tuple([node])
+
+    for node in G.nodes():
+        region = result[result['cust'] == node]['region'].values[0]
+        node_trace['marker']['color'] += tuple([colormap[region]])
+
+    fig = go.Figure(data=[edge_trace, node_trace],
+                   layout=go.Layout(
+                        title='<br>Network graph made with Python',
+                        titlefont=dict(size=16),
+                        showlegend=False,
+                        hovermode='closest',
+                        margin=dict(b=20, l=5, r=5, t=40),
+                        annotations=[dict(
+                            text="Python code: <a href='https://plotly.com/ipython-notebooks/network-graphs/'> https://plotly.com/ipython-notebooks/network-graphs/</a>",
+                            showarrow=False,
+                            xref="paper", yref="paper",
+                            x=0.005, y=-0.002)],
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+
+    return fig
+
+# 应用布局
+app.layout = html.Div(
+    children=[
+        html.Div(
+            id="top-row",
+            children=[
+                html.Div(
+                    className="row",
+                    id="top-row-header",
+                    children=[
+                        html.Div(
+                            id="header-container",
+                            children=[
+                                build_banner(),
+                                html.P(
+                                    id="instructions",
+                                    children="Click on the legend to toggle visibility of regions."
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+                html.Div(
+                    className="row",
+                    id="top-row-graphs",
+                    children=[
+                        html.Div(
+                            id="relationship-map-container",
+                            children=[
+                                build_graph_title("Customer-Client Relationship Map"),
+                                dcc.Graph(
+                                    id="relationship-map",
+                                    figure=generate_relationship_plot(G, result, result["region"].unique()),
+                                    config={"scrollZoom": True, "displayModeBar": True},
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ]
+)
+
+# 更新关系图
+@app.callback(
+    Output("relationship-map", "figure"),
+    [Input("relationship-map", "restyleData")],
+    [State("relationship-map", "figure")],
+)
+def update_relationship_map(restyle_data, current_fig):
+    if restyle_data is not None:
+        selected_regions = [item[1] for item in restyle_data[0][1]]
+    else:
+        selected_regions = result["region"].unique()
+
+    return generate_relationship_plot(G, result, selected_regions)
+
+# 运行服务器
+if __name__ == "__main__":
+    app.run_server(debug=True)
+
+
