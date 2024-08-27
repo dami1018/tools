@@ -1,0 +1,152 @@
+import pathlib
+import os
+
+import pandas as pd
+import numpy as np
+
+import dash
+import dash_core_components as dcc
+import dash_html_components as html
+import plotly.graph_objs as go
+from dash.dependencies import Input, Output, State
+
+# 初始化应用
+app = dash.Dash(
+    __name__,
+    meta_tags=[
+        {"name": "viewport", "content": "width=device-width, initial-scale=1.0"}
+    ],
+)
+server = app.server
+app.config["suppress_callback_exceptions"] = True
+
+# 加载数据
+APP_PATH = str(pathlib.Path(__file__).parent.resolve())
+
+df = pd.read_csv(os.path.join(APP_PATH, os.path.join("data", "data.csv")))
+
+# 为图例分配颜色
+colormap = {region: color for region, color in zip(df["region"].unique(), constants.colors)}
+
+# 构建横幅
+def build_banner():
+    return html.Div(
+        id="banner",
+        className="banner",
+        children=[
+            html.Img(src=app.get_asset_url("dash-logo.png")),
+            html.H6("Customer-Client Relationship Map"),
+        ],
+    )
+
+# 构建图表标题
+def build_graph_title(title):
+    return html.P(className="graph-title", children=title)
+
+# 生成关系图
+def generate_relationship_plot(dff, selected_regions):
+    data = []
+    for region in dff["region"].unique():
+        if region in selected_regions:
+            region_df = dff[dff["region"] == region]
+            for _, row in region_df.iterrows():
+                data.append(
+                    go.Scatter(
+                        x=[row["cust"], row["client"]],
+                        y=[0, 0],
+                        mode="lines",
+                        line=dict(color=colormap[region]),
+                        showlegend=False,
+                        hoverinfo="none",
+                    )
+                )
+            data.append(
+                go.Scatter(
+                    x=[],
+                    y=[],
+                    mode="markers",
+                    marker=dict(color=colormap[region]),
+                    name=region,
+                )
+            )
+
+    layout = go.Layout(
+        hovermode="closest",
+        xaxis=dict(title="Customer-Client Relationship"),
+        yaxis=dict(showticklabels=False),
+        legend=dict(
+            bgcolor="#1f2c56",
+            orientation="h",
+            font=dict(color="white"),
+            x=0,
+            y=0,
+            yanchor="bottom",
+        ),
+        paper_bgcolor="#192444",
+        plot_bgcolor="#192444",
+        font=dict(color="white"),
+    )
+
+    return {"data": data, "layout": layout}
+
+# 应用布局
+app.layout = html.Div(
+    children=[
+        html.Div(
+            id="top-row",
+            children=[
+                html.Div(
+                    className="row",
+                    id="top-row-header",
+                    children=[
+                        html.Div(
+                            id="header-container",
+                            children=[
+                                build_banner(),
+                                html.P(
+                                    id="instructions",
+                                    children="Click on the legend to toggle visibility of regions."
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+                html.Div(
+                    className="row",
+                    id="top-row-graphs",
+                    children=[
+                        html.Div(
+                            id="relationship-map-container",
+                            children=[
+                                build_graph_title("Customer-Client Relationship Map"),
+                                dcc.Graph(
+                                    id="relationship-map",
+                                    figure=generate_relationship_plot(df, df["region"].unique()),
+                                    config={"scrollZoom": True, "displayModeBar": True},
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ]
+)
+
+# 更新关系图
+@app.callback(
+    Output("relationship-map", "figure"),
+    [Input("relationship-map", "restyleData")],
+    [State("relationship-map", "figure")],
+)
+def update_relationship_map(restyle_data, current_fig):
+    if restyle_data is not None:
+        selected_regions = [item[1] for item in restyle_data[0][1]]
+    else:
+        selected_regions = df["region"].unique()
+
+    return generate_relationship_plot(df, selected_regions)
+
+# 运行服务器
+if __name__ == "__main__":
+    app.run_server(debug=True)
