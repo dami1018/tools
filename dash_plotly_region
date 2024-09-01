@@ -1,0 +1,261 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Aug 30 12:20:24 2024
+
+@author: csc05176
+"""
+
+from dash import Dash, dcc, html, dash_table
+from dash.dependencies import Input, Output, State
+import networkx as nx
+import pandas as pd
+from pypinyin import pinyin, lazy_pinyin
+import plotly.graph_objs as go
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+import webbrowser
+import time
+import dash
+import numpy as np
+path = r'D:\python\data.xlsx'
+data = pd.read_excel(path, sheet_name="Sheet1")
+data['客户经理工号'] = data['客户经理工号'].fillna('csc')
+data['客户经理'] = data['客户经理'].fillna('分公司')
+re = data
+# 图建立
+G = nx.Graph()
+for index, row in re.iterrows():
+    G.add_edge(row['客户经理'], row['客户名称'])
+pos = nx.spring_layout(G)
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+data = []
+for region, df in re.groupby("分公司"):
+    node_list = []
+    x = []
+    y = []
+    node_sizes = []
+    node_text_list = []
+    for i,row in  df.iterrows():
+        node_list.append(row['客户经理'])
+        node_list.append(row['客户名称'])
+    node_list = pd.unique(node_list).tolist()
+    for node in node_list:
+        x0,y0 =pos[node]
+        x.append(x0)
+        y.append(y0)
+        if node in df['客户经理'].values:
+            node_info = df[df['客户经理'] == node]
+            node_sizes.append(10)
+            node_text = f"{node}<br>工号: {node_info['客户经理工号'].values[0]}<br>分公司: {node_info['分公司'].values[0]}"
+            node_text_list.append(node_text)
+        else:
+            node_info = df[df['客户名称'] == node]
+            node_sizes.append(min(node_info['信用账户总资产'].values[0] / 1000000, 100))
+            node_text = f"{node}<br>资产: {node_info['普通账户总资产'].values[0]}<br>分公司: {node_info['分公司'].values[0]}"  
+            node_text_list.append(node_text)
+    scatter = go.Scatter(
+        name=region,
+        x=x,
+        y=y,
+        text=node_list,
+        hovertext=node_text_list,
+        # textposition="top center",
+        mode="markers+text",
+        hoverinfo='text',
+        marker=dict(size=node_sizes, symbol="circle"),
+    )
+    data.append(scatter)
+axes = dict(title="", showgrid=True, zeroline=False, showticklabels=False)
+layout = go.Layout(
+    margin=dict(l=0, r=0, b=0, t=0),
+    scene=dict(xaxis=axes, yaxis=axes, zaxis=axes),
+)
+data.append(edge_trace)
+fig = go.Figure(data=data, layout=layout)
+app = Dash(__name__)
+app.layout = html.Div([
+    dcc.Graph(id='network-graph', figure=fig, style={'width': '90vw', 'height': '90vh'}),
+    html.Div([
+        dcc.Input(id='search-input', type='text', placeholder='请输入搜索内容'),
+        dcc.Dropdown(id='node-dropdown', placeholder='请选择', style={'width': '200px'}),
+        html.Div(id='search-output'),
+        dash_table.DataTable(id='search-results', columns=[{"name": i, "id": i} for i in re.columns], style_table={'overflowX': 'auto'}),
+        html.Div(id='click-output'),
+        html.Div(id='output'),
+        dcc.Store(id='data-store', data=re.to_dict('records')),
+    ])
+])
+@app.callback(
+    Output('search-output', 'children'),
+    [Input('search-input', 'value')]
+)
+def search_nodes(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        if matching_nodes:
+            return f"相关信息: {', '.join(matching_nodes)}"
+        else:
+            return "No matching nodes found."
+    return ""
+@app.callback(
+    Output('node-dropdown', 'options'),
+    [Input('search-input', 'value')]
+)
+def update_dropdown(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        return [{'label': node, 'value': node} for node in matching_nodes]
+    return []
+@app.callback(
+    Output('search-results', 'data'),
+    [Input('search-input', 'value')]
+)
+def update_search_results(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_records = re[re.apply(lambda row: any(search_value in str(cell) for cell in row), axis=1)]
+        return matching_records.to_dict('records')
+    return []
+@app.callback(
+    Output('network-graph', 'figure'),
+    [Input('node-dropdown', 'value'), Input('network-graph', 'clickData')],
+    [State('network-graph', 'figure')]
+)
+def update_graph(selected_node, click_data, current_fig):
+    le = 0.1
+    step = 1
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return current_fig
+    else:
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger == 'node-dropdown' and selected_node:
+        node = selected_node
+    elif trigger == 'network-graph' and click_data:
+        node = click_data['points'][0]['text']
+    else:
+        return current_fig
+
+    x, y = pos[node]
+
+    # 更新图表布局
+    fig.update_layout(
+        xaxis=dict(range=[x - le, x + le]),
+        yaxis=dict(range=[y - le, y + le])
+    )
+
+    return fig
+@app.callback(
+        Output('click-output', 'children'),
+        Input("network-graph", "clickData")
+)
+def display_click_image(clickData): 
+    return clickData["points"][0]["text"]
+'''
+An object was provided as `children` instead of a component, string, or number (or list of those). Check the children property that looks something like:
+{
+  "points": [
+    {
+      "curveNumber": 0,
+      "pointNumber": 71,
+      "pointIndex": 71,
+      "x": -0.20625047385692596,
+      "y": -0.8236146569252014,
+      "text": "赜远信淮2号     ",
+      "hovertext": "赜远信淮2号     <br>资产: 0.0<br>分公司: 上海分公司",
+      "marker.size": 92.94630881,
+      "bbox": {
+        "x0": 819.166845595,
+        "x1": 912.1131544049999,
+        "y0": 935.726845595,
+        "y1": 1028.673154405
+      }
+    }
+  ]
+}
+'''
+@app.callback(
+    Output('output', 'children'),
+    Input('network-graph', 'clickData'),
+    State('data-store', 'data')
+)
+def display_click_data(clickData, data):
+    if clickData is None:
+        return ''
+    
+    point = clickData['points'][0]
+    point_text = point['text']
+    
+    return html.Div([
+        html.P(f"点击点的文本: {point_text}"),
+        dcc.Input(id='input-备注', type='text', placeholder='输入备注'),
+        html.Button('提交', id='submit-备注')
+    ])
+
+@app.callback(
+    Output('data-store', 'data'),
+    Input('submit-备注', 'n_clicks'),
+    State('network-graph', 'clickData'),
+    State('input-备注', 'value'),
+    State('data-store', 'data')
+)
+def update_data(n_clicks, clickData, input_备注, data):
+    if n_clicks is None or clickData is None or input_备注 is None:
+        return data
+    
+    point = clickData['points'][0]
+    point_text = point['text']
+    point_text = point_text.strip()
+    for index,record in enumerate(data):
+        if record['客户经理'].strip() == point_text or record['客户名称'].strip() == point_text:
+            temp = index   
+    data[temp]['备注'] = input_备注
+    
+    # 更新DataFrame并保存到Excel
+    df = pd.DataFrame(data)
+    df.to_excel('updated_data.xlsx', index=False)
+    return data
+'''
+@app.callback(
+    Output('network-graph', 'figure'),
+    Input('submit-备注', 'n_clicks'),
+    State('network-graph', 'clickData'),
+    State('network-graph', 'figure'),
+    State('input-备注', 'value'),
+    State('data-store', 'data')
+)
+def update_graph_text(n_clicks, clickData, fig,input_备注, data):
+    if n_clicks is None or clickData is None or input_备注 is None:
+        return fig
+    figc = fig
+    li = len(figc.data)-1
+    point = clickData['points'][0]
+    point_text = point['text']
+    point_text = point_text.strip()
+    for i in range(li):
+        df = figc.data[i]
+        for index,text in enumerate(df.text):
+            if text.strip()==point_text:
+                figc.data[i][index]['hovertext'] += '备注：'+input_备注
+    return figc
+'''
+
+
+if __name__ == '__main__':
+    webbrowser.open('http://127.0.0.1:8050/')
+    app.run_server(debug=True)
+    
+
