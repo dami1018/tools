@@ -1,0 +1,265 @@
+from dash import Dash, dcc, html, dash_table
+from dash.dependencies import Input, Output, State
+import networkx as nx
+import pandas as pd
+import plotly.graph_objs as go
+import webbrowser
+
+# 读取数据
+path = r'D:\python\data.xlsx'
+data = pd.read_excel(path, sheet_name="Sheet1")
+data['客户经理工号'] = data['客户经理工号'].fillna('csc')
+data['客户经理'] = data['客户经理'].fillna('分公司')
+re = data
+
+# 图建立
+G = nx.Graph()
+for index, row in re.iterrows():
+    G.add_edge(row['客户经理'], row['客户名称'])
+pos = nx.spring_layout(G)
+
+# 创建边迹
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+
+# 创建节点迹
+data = []
+for region, df in re.groupby("分公司"):
+    node_list = []
+    x = []
+    y = []
+    node_sizes = []
+    node_text_list = []
+    for i, row in df.iterrows():
+        node_list.append(row['客户经理'])
+        node_list.append(row['客户名称'])
+    node_list = pd.unique(node_list).tolist()
+    for node in node_list:
+        x0, y0 = pos[node]
+        x.append(x0)
+        y.append(y0)
+        if node in df['客户经理'].values:
+            node_info = df[df['客户经理'] == node]
+            node_sizes.append(10)
+            node_text = f"{node}<br>工号: {node_info['客户经理工号'].values[0]}<br>分公司: {node_info['分公司'].values[0]}"
+            node_text_list.append(node_text)
+        else:
+            node_info = df[df['客户名称'] == node]
+            node_sizes.append(min(node_info['信用账户总资产'].values[0] / 1000000, 100))
+            node_text = f"{node}<br>资产: {node_info['普通账户总资产'].values[0]}<br>分公司: {node_info['分公司'].values[0]}"
+            node_text_list.append(node_text)
+    scatter = go.Scatter(
+        name=region,
+        x=x,
+        y=y,
+        text=node_list,
+        hovertext=node_text_list,
+        mode="markers+text",
+        hoverinfo='text',
+        marker=dict(size=node_sizes, symbol="circle"),
+    )
+    data.append(scatter)
+
+axes = dict(title="", showgrid=True, zeroline=False, showticklabels=False)
+layout = go.Layout(
+    margin=dict(l=0, r=0, b=0, t=0),
+    scene=dict(xaxis=axes, yaxis=axes, zaxis=axes),
+)
+data.append(edge_trace)
+fig = go.Figure(data=data, layout=layout)
+
+# 创建Dash应用
+app = Dash(__name__)
+
+app.layout = html.Div([
+    dcc.Graph(id='network-graph', figure=fig, style={'width': '90vw', 'height': '90vh'}),
+    html.Div([
+        dcc.Input(id='search-input', type='text', placeholder='请输入搜索内容'),
+        dcc.Dropdown(id='node-dropdown', placeholder='请选择', style={'width': '200px'}),
+        html.Div(id='search-output'),
+        dash_table.DataTable(id='search-results', columns=[{"name": i, "id": i} for i in re.columns], style_table={'overflowX': 'auto'}),
+        html.Div(id='click-output'),
+        html.Div(id='output'),
+        dcc.Store(id='data-store', data=re.to_dict('records')),
+    ])
+])
+
+@app.callback(
+    Output('search-output', 'children'),
+    [Input('search-input', 'value')]
+)
+def search_nodes(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        if matching_nodes:
+            return f"相关信息: {', '.join(matching_nodes)}"
+        else:
+            return "No matching nodes found."
+    return ""
+
+@app.callback(
+    Output('node-dropdown', 'options'),
+    [Input('search-input', 'value')]
+)
+def update_dropdown(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_nodes = [node for node in G.nodes if search_value in node]
+        return [{'label': node, 'value': node} for node in matching_nodes]
+    return []
+
+@app.callback(
+    Output('search-results', 'data'),
+    [Input('search-input', 'value')]
+)
+def update_search_results(search_value):
+    if search_value:
+        search_value = search_value.strip()
+        matching_records = re[re.apply(lambda row: any(search_value in str(cell) for cell in row), axis=1)]
+        return matching_records.to_dict('records')
+    return []
+
+@app.callback(
+    Output('network-graph', 'figure', allow_duplicate=True),
+    [Input('node-dropdown', 'value'), Input('network-graph', 'clickData')],
+    [State('network-graph', 'figure')],
+    prevent_initial_call='initial_duplicate'
+)
+def update_graph(selected_node, click_data, current_fig):
+    le = 0.1
+    step = 1
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return current_fig
+    else:
+        trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger == 'node-dropdown' and selected_node:
+        node = selected_node
+    elif trigger == 'network-graph' and click_data:
+        node = click_data['points'][0]['text']
+    else:
+        return current_fig
+
+    x, y = pos[node]
+
+    # 更新图表布局
+    fig.update_layout(
+        xaxis=dict(range=[x - le, x + le]),
+        yaxis=dict(range=[y - le, y + le])
+    )
+
+    return fig
+
+@app.callback(
+    Output('click-output', 'children'),
+    Input("network-graph", "clickData")
+)
+def display_click_image(clickData):
+    if clickData:
+        return clickData["points"][0]["text"]
+    return ""
+
+@app.callback(
+    Output('output', 'children'),
+    Input('network-graph', 'clickData'),
+    State('data-store', 'data')
+)
+def display_click_data(clickData, data):
+    if clickData is None:
+        return ''
+
+    point = clickData['points'][0]
+    point_text = point['text']
+
+    return html.Div([
+        html.P(f"点击点的文本: {point_text}"),
+        dcc.Input(id='input-备注', type='text', placeholder='输入备注'),
+        html.Button('提交', id='submit-备注')
+    ])
+
+@app.callback(
+    Output('data-store', 'data'),
+    Input('submit-备注', 'n_clicks'),
+    State('network-graph', 'clickData'),
+    State('input-备注', 'value'),
+    State('data-store', 'data')
+)
+def update_data(n_clicks, clickData, input_备注, data):
+    if n_clicks is None or clickData is None or input_备注 is None:
+        return data
+
+    point = clickData['points'][0]
+    point_text = point['text'].strip()
+    for index, record in enumerate(data):
+        if record['客户经理'].strip() == point_text or record['客户名称'].strip() == point_text:
+            temp = index
+    data[temp]['备注'] = input_备注
+
+    # 更新DataFrame并保存到Excel
+    df = pd.DataFrame(data)
+    df.to_excel('updated_data.xlsx', index=False)
+    return data
+
+@app.callback(
+    Output('network-graph', 'figure', allow_duplicate=True),
+    Input('submit-备注', 'n_clicks'),
+    State('network-graph', 'clickData'),
+    State('network-graph', 'figure'),
+    State('input-备注', 'value'),
+    State('data-store', 'data'),
+    prevent_initial_call='initial_duplicate'+---------+
+)
+def update_graph_text(n_clicks, clickData, current_fig, input_备注, data):
+    if n_clicks is None or clickData is None or input_备注 is None:
+        return current_fig
+    li = len(fig.data) - 1
+    point = clickData['points'][0]
+    point_text = point['text'].strip()
+    
+    for i in range(li):
+        df = fig.data[i]
+        for index, text in enumerate(df.text):
+            if text.strip() == point_text:
+                hovertext_list = list(fig.data[i].hovertext)
+                hovertext_list[index] += ' 备注： ' + input_备注
+                fig.data[i].hovertext = hovertext_list
+    return fig
+app.clientside_callback(
+    """
+    function(id) {
+        setTimeout(function() {
+            var plot = document.getElementById(id).querySelector('.js-plotly-plot');
+            if (plot) {
+                var zoomInButton = plot.querySelector('.modebar-btn[data-title="Zoom in"]');
+                var zoomOutButton = plot.querySelector('.modebar-btn[data-title="Zoom out"]');
+
+                plot.onwheel = function(event) {
+                    event.preventDefault();
+                    if (event.deltaY < 0) {
+                        zoomInButton.click();
+                    } else {
+                        zoomOutButton.click();
+                    }
+                };
+            }
+        }, 100);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output('network-graph', 'id'),
+    [Input('network-graph', 'id')]
+)
+if __name__ == '__main__':
+    webbrowser.open('http://127.0.0.1:8050/')
+    app.run_server(debug=True)
