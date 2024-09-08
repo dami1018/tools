@@ -1,0 +1,136 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jul  7 21:21:30 2024
+
+@author: 1
+"""
+# 旨在实现程序自动化
+
+# UI Automation (Windows)
+# AutoIt: 一个用于 Windows 桌面应用程序自动化的脚本语言。
+# UI Automation: Windows 提供的 API，用于自动化 UI 测试。
+# 使用inspect嗅探器 C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64
+# 作为套装一部分不能单独安装
+# 先使用AutoIt框架
+# windows SDK 安装
+'''
+# import autoit
+# stackflow 上的答案，ait 神奇
+# 好像也不行
+import ait
+# 使用inspect程序来查找控件
+# 找到窗口并激活
+autoit.win_wait_active("窗口标题", 5)
+# 人脸
+ait.win_wait_active("AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）", 5)
+# 找到输入框并输入文本
+autoit.control_send("窗口标题", "输入框控件名", "Hello, World!")
+# 找到按钮并点击
+autoit.control_click("窗口标题", "按钮控件名")
+'''
+
+from pywinauto import findwindows
+# 获取所有窗口的句柄和标题
+windows = findwindows.find_elements()
+
+for window in windows:
+    print(f"Window Title: {window.window_text()}, Handle: {window.handle}")
+    
+    
+
+from pywinauto import findwindows
+
+# 获取所有窗口的句柄和标题
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+#"打开(O)"    
+from pywinauto import Application
+# 启动应用程序
+app = Application(backend="uia").start("notepad.exe")
+# 连接到已运行的应用程序
+app = Application(backend="uia").connect(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+# 获取窗口的控件树
+window = app.window(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+# 打开窗口也识别不到，需要进一步查找问题所在
+window = app.window(title_re="GetOpenFileName")
+# 错的窗口也能正常运行·····
+window = app.window(title_re="GetOpenFileName1")
+try:
+    window = app.window(title_re="GetOpenFileName")
+except Exception as e:
+    print('error')
+if window:
+    print("find")
+# 通过自循环的方式来实现遍历
+def print_control_info(control, indent=0):
+    try:
+        control_type = control.element_info.control_type
+        window_text = control.element_info.name
+        class_name = control.element_info.class_name
+        print(" " * indent + f"{control_type} - {window_text} - {class_name}")
+    except Exception as e:
+        print(" " * indent + f"Error: {e}")
+
+    for child in control.children():
+        print_control_info(child, indent + 2)
+
+print_control_info(window)
+
+# 查找并操作“开始生成”按钮
+button = window.child_window(title="开始生成", control_type="Button")
+button.click()
+button = window.child_window(title="人脸图片选择", control_type="Button")
+button.click()
+button = window.child_window(title="打开(O)", control_type="Button")
+button.click()
+#"文件名(N):" 报错名称不对
+button = window.child_window(title="文件名(N):", control_type="Edit").type_keys("C:\\path\\to\\your\\file.txt", with_spaces=True)
+button.click()
+window.print_control_identifiers()
+# 打开新窗口，获取新窗口控件信息
+# 等待新窗口出现
+import pywinauto
+from pywinauto import Desktop
+new_window = Desktop(backend='uia').window(title_re="GetOpenFileName")
+# 也不报错，说明存不存在都嫩巩固正常运行
+new_window = Desktop(backend='uia').window(title_re="GetOpenFileName55")
+# 换个函数呢？
+# 一样的哈
+# 替换为实际的新窗口标题或类名
+new_window.wait('visible', timeout=10)
+
+# 操作新窗口
+try:
+    new_window = Desktop(backend='uia').window(title_re="GetOpenFileName")  # 替换为实际的新窗口标题或类名
+    new_window.wait('visible', timeout=20)  # 增加等待时间到20秒
+except pywinauto.ElementNotFoundError:
+    print("新窗口未找到，请检查窗口标题或类名是否正确，或者新窗口是否确实出现。")
+    new_window = None
+
+# 如果新窗口找到，打印新窗口的所有控件信息
+if new_window:
+    def print_control_info(control, indent=0):
+        try:
+            control_type = control.element_info.control_type
+            window_text = control.element_info.name
+            class_name = control.element_info.class_name
+            print(" " * indent + f"{control_type} - {window_text} - {class_name}")
+        except Exception as e:
+            print(" " * indent + f"Error: {e}")
+
+        for child in control.children():
+            print_control_info(child, indent + 2)
+
+    print_control_info(new_window)
+else:
+    print("新窗口未找到，无法打印控件信息。")
+
+
+print_control_info(new_window)
+child = window.children()
+# 选择主窗口
+dlg = app.window(title="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+# 输入文本
+dlg.type_keys("Hello, World!", with_spaces=True)
+
