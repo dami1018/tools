@@ -1,0 +1,118 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Sep  7 19:02:01 2024
+
+@author: 1
+"""
+
+# 旨在实现程序自动化
+
+# UI Automation (Windows)
+# AutoIt: 一个用于 Windows 桌面应用程序自动化的脚本语言。
+# UI Automation: Windows 提供的 API，用于自动化 UI 测试。
+# 使用inspect嗅探器 C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64
+# 作为套装一部分不能单独安装
+# 先使用AutoIt框架
+# windows SDK 安装
+
+
+import pywinauto
+from pywinauto import findwindows
+from pywinauto import Application
+id = 36903699
+password = 821018
+# 获取所有的窗口信息
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+# change的例子，作为参考 D:\tools\deepfake\AI人脸替换工具V5.6完整包\roop_rope_facefusion_V56.exe
+app1 = Application(backend="win32").connect(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+app1 = Application(backend="uia").connect(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+window.print_control_identifiers()
+
+win_1 = window.child_window(title="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）", class_name="Qt5152QWindowIcon")
+win_1.click()
+win_1.print_control_identifiers()
+windows1 = app1.windows()
+
+# 打印所有窗口的标题
+print("应用程序的所有窗口名称:")
+for window in windows1:
+    print(window.window_text())
+# 直接打开报错
+# app = Application(backend="uia").start(r"D:\tools\deepfake\AI人脸替换工具V5.6完整包\roop_rope_facefusion_V56.exe")
+window = app1.window(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+button = window.child_window(title="开始生成", control_type="UIA_WindowControlTypeId (0xC370)")
+button.click()
+control = window.child_window(auto_id="Form.tabWidget.qt_tabwidget_stackedwidget.tab_1.btn_gen")
+control.click()
+# 操作通达信
+try:
+    app = Application(backend="win32").start(r"C:\zd_zxjtzq_gm\TdxW.exe")
+    print("成功连接到应用程序")
+except Exception as e:
+    print(f"连接到应用程序失败: {e}")
+    exit()
+
+# 获取所有窗口
+windows = app.windows()
+
+# 打印所有窗口的标题
+print("应用程序的所有窗口名称:")
+for window in windows:
+    print(window.window_text())
+    
+window = app.window(title_re="中信建投网上交易卓越安全加强版V10.10 - [首页]")
+window1 = app.window(title_re="中信建投消息中心")
+window2 = app.window(title_re="中信建投网上交易卓越安全加强版V10.10")
+
+window1.print_control_identifiers()
+
+
+
+child_windows = window.children() 
+   
+button = window.child_window(title="开始生成", control_type="Button")    
+    
+    
+
+import autoit
+
+
+# 连接到已运行的应用程序
+title_re = "AI人脸替换工具离线版V5.6（作者B站：万能君的软件库"
+app_handle = autoit.win_wait(title_re, 10)
+
+if app_handle == 0:
+    print("连接到应用程序失败")
+    exit()
+
+# 获取主窗口
+main_window_handle = autoit.win_wait(title_re, "", 10)
+
+
+autoit.win_enum_children(main_window_handle)
+
+
+if main_window_handle == 0:
+    print("主窗口查找失败")
+    exit()
+
+# 等待控件加载
+autoit.sleep(5000)  # 等待5秒，确保控件完全加载
+
+# 使用 ControlClick 定位并点击控件
+control_id = "Form.tabWidget.qt_tabwidget_stackedwidget.tab_1.btn_gen"
+autoit.control_click(title_re, control_id)
+
+if autoit.error():
+    print("控件定位失败")
+else:
+    print("控件定位并点击成功")
+
+
+    
+app = Application(backend="uia").start(r"C:\zd_zxjtzq_gm\TdxW.exe")
+window = app.window(title_re="GetOpenFileName")
+# C:\zd_zxjtzq_gm\TdxW.exe
+app = Application(backend="uia").connect(title_re="中信建投网上交易卓越安全加强版V10.10 - [首页]")
