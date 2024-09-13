@@ -1,0 +1,324 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Sep 11 12:15:00 2024
+
+@author: csc05176
+"""
+
+import pywinauto
+from pywinauto import findwindows
+from pywinauto import Application
+# 获取所有的窗口信息
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+app1 = Application(backend="uia").connect(handle=67040)
+window = app1.top_window()
+window.print_control_identifiers()
+# 
+app = Application(backend="uia").connect(handle=459642)
+window = app.top_window()
+print(dir(window))
+print(window.control_id)
+windows = app.windows()
+window.print_control_identifiers()
+pan = window.child_window(auto_id="3019", control_type="Pane")
+pan.click()
+for window in windows:
+        print(f"Window: {window}\n")
+        print(f"Class Name: {window.class_name}\n")
+        print(f"Control Type: {window.control_type}\n")
+        # print(f"Name: {window.window_text()}\n")
+        print(f"Handle: {window.handle}\n")
+        # print(f"Is Enabled: {window.is_enabled()}\n")
+        # print(f"Is Visible: {window.is_visible()}\n")
+        print(f"Bounding Rectangle: {window.rectangle}\n")
+        print("-" * 40 + "\n")
+for window in windows: 
+        window.print_control_identifiers()       
+# 选择 Pane 控件
+pane = main_window.child_window(control_type="Pane")
+# 获取 Pane 中的所有子控件
+children = window.children()
+# 遍历子控件并打印名称
+for child in children:
+    print(f"Child Window: {child}")
+    print(f"Class Name: {child.class_name()}")
+    print(f"Control Type: {child.element_info.control_type}")
+    print(f"Name: {child.window_text()}")
+    print(f"Handle: {child.handle}")
+    print(f"Is Enabled: {child.is_enabled()}")
+    print(f"Is Visible: {child.is_visible()}")
+    print(f"Bounding Rectangle: {child.rectangle()}")
+    
+    # 如果是 Pane 类型，尝试获取其子控件
+    if child.element_info.control_type == "Pane":
+        sub_children = child.children()
+        if sub_children:
+            print("Sub-Children:")
+            for sub_child in sub_children:
+                print(f"  Sub-Child: {sub_child}")
+                print(f"  Class Name: {sub_child.class_name()}")
+                print(f"  Control Type: {sub_child.element_info.control_type}")
+                print(f"  Name: {sub_child.window_text()}")
+                print(f"  Handle: {sub_child.handle}")
+                print(f"  Is Enabled: {sub_child.is_enabled()}")
+                print(f"  Is Visible: {sub_child.is_visible()}")
+                print(f"  Bounding Rectangle: {sub_child.rectangle()}")
+                print("  " + "-" * 38)
+    
+    print("-" * 40)
+    
+    
+
+
+def print_control_info(control, indent=0):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name()}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    print(f"{indent_str}" + "-" * 40)
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1)
+
+# 开始遍历顶层窗口及其所有子控件
+print_control_info(window)
+
+
+def print_control_info(control, indent=0, file=None):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    file.write(f"{indent_str}Handle: {control.handle}\n")
+    file.write(f"{indent_str}Control: {control}\n")
+    file.write(f"{indent_str}Class Name: {control.class_name()}\n")
+    file.write(f"{indent_str}Control Type: {control.element_info.control_type}\n")
+    file.write(f"{indent_str}Name: {control.window_text()}\n")
+    file.write(f"{indent_str}Handle: {control.handle}\n")
+    file.write(f"{indent_str}Is Enabled: {control.is_enabled()}\n")
+    file.write(f"{indent_str}Is Visible: {control.is_visible()}\n")
+    file.write(f"{indent_str}Bounding Rectangle: {control.rectangle()}\n")
+    file.write(f"{indent_str}" + "-" * 40 + "\n")
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1, file)
+
+# 打开文件以写入
+with open(r"d:\output.txt", "w", encoding="utf-8") as file:
+    # 开始遍历顶层窗口及其所有子控件
+    print_control_info(window, file=file)
+    
+    
+    
+import inspect
+attributes_and_methods = dir(window)
+
+# 遍历属性和方法，找到方法并获取其源代码
+for item in attributes_and_methods:
+    if callable(getattr(window, item)):  # 检查是否是方法
+        method = getattr(window, item)
+        print(f"Method: {item}")
+    else:
+        print(f"Attribute: {item}")
+i = 0
+for window in windows:
+    print('-'*40)
+    print(f'the  {i}')
+    print(window)
+    print(f"dir:{dir(window)}\n")
+    i+=1
+
+
+
+def print_control_info(control, indent=0):
+    """递归打印控件及其子控件的信息，并打印子控件的定位信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name()}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    
+    # 生成并打印 child_window 定位信息
+    locator = generate_child_window_locator(control)
+    print(f"{indent_str}Child Window Locator: {locator}")
+    
+    print(f"{indent_str}" + "-" * 40)
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1)
+
+def generate_child_window_locator(control):
+    """生成 child_window 定位信息"""
+    locator = "child_window("
+    if control.class_name():
+        locator += f"class_name='{control.class_name()}'"
+    if control.handle:
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"handle={control.handle}"
+    if control.element_info.control_type:
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"control_type='{control.element_info.control_type}'"
+    if control.window_text():
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"title='{control.window_text()}'"
+    locator += ")"
+    return locator
+
+# 开始遍历顶层窗口及其所有子控件
+print_control_info(window)
+
+exa1 = window.child_window(handle=332462)
+print(dir(exa1))
+exa1.print_control_identifiers
+
+
+def print_control_info(control, indent=0, file=None):
+    """递归打印控件及其子控件的信息，并打印子控件的定位信息"""
+    indent_str = "  " * indent
+    file.write(f"{indent_str}Control: {control}\n")
+    file.write(f"{indent_str}Class Name: {control.class_name()}\n")
+    file.write(f"{indent_str}Control Type: {control.element_info.control_type}\n")
+    file.write(f"{indent_str}Name: {control.window_text()}\n")
+    file.write(f"{indent_str}Handle: {control.handle}\n")
+    file.write(f"{indent_str}Is Enabled: {control.is_enabled()}\n")
+    file.write(f"{indent_str}Is Visible: {control.is_visible()}\n")
+    file.write(f"{indent_str}Bounding Rectangle: {control.rectangle()}\n")
+    
+    # 生成并打印 child_window 定位信息
+    locator = generate_child_window_locator(control)
+    file.write(f"{indent_str}Child Window Locator: {locator}\n")
+    
+    file.write(f"{indent_str}" + "-" * 40 + "\n")
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1, file)
+
+def generate_child_window_locator(control):
+    """生成 child_window 定位信息"""
+    locator = "child_window("
+    if control.class_name():
+        locator += f"class_name='{control.class_name()}'"
+    if control.handle:
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"handle={control.handle}"
+    if control.element_info.control_type:
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"control_type='{control.element_info.control_type}'"
+    if control.window_text():
+        if locator != "child_window(":
+            locator += ", "
+        locator += f"title='{control.window_text()}'"
+    locator += ")"
+    return locator
+
+# 打开文件以写入
+with open(r"d:\control_info.txt", "w") as file:
+    # 开始遍历顶层窗口及其所有子控件
+    print_control_info(window, file=file)
+
+
+
+def count_control_types(control, control_type_count=None):
+    """递归统计控件及其子控件的 control_type 类型及数量"""
+    # 更新 control_type 计数
+    control_type = control.element_info.control_type
+    if control_type in control_type_count:
+        control_type_count[control_type] += 1
+    else:
+        control_type_count[control_type] = 1
+    
+    # 递归遍历子控件
+    for child in control.children():
+        count_control_types(child, control_type_count)
+
+def print_control_type_summary(control_type_count):
+    """打印控件类型汇总信息"""
+    print("\nControl Type Summary:")
+    for control_type, count in control_type_count.items():
+        print(f"{control_type}: {count}")
+        # 打印对应的操作方式
+        operations = get_operations_for_control_type(control_type)
+        print(f"  Operations: {', '.join(operations)}")
+
+def get_operations_for_control_type(control_type):
+    """获取控件类型对应的操作方式"""
+    operations_map = {
+        "Button": ["click", "get_text", "is_enabled"],
+        "Edit": ["set_text", "get_text", "clear_text"],
+        "Static": ["get_text"],
+        "ComboBox": ["select_item", "get_selected_item", "get_items"],
+        "ListBox": ["select_item", "get_selected_item", "get_items"],
+        "CheckBox": ["check", "uncheck", "is_checked"],
+        "RadioButton": ["select", "is_selected"],
+        "GroupBox": ["get_text", "get_children"],
+        "TabControl": ["select_tab", "get_selected_tab", "get_tabs"],
+        "TreeView": ["expand", "collapse", "select_node", "get_nodes"],
+        "ListView": ["select_item", "get_selected_item", "get_items"],
+        "ProgressBar": ["get_value"],
+        "ScrollBar": ["set_position", "get_position"],
+        "Menu": ["select_menu_item", "get_menu_items"],
+        "StatusBar": ["get_text"],
+        "ToolBar": ["click_button", "get_buttons"],
+        "Slider": ["set_position", "get_position"],
+        "Calendar": ["select_date", "get_selected_date"],
+        "Hyperlink": ["click", "get_text"],
+        "SplitButton": ["click", "get_text"],
+        "ListItem": ["select", "get_text", "get_children", "expand", "collapse", "is_selected", "is_expanded"],
+        "Thumb": ["drag", "get_position", "set_position"]
+    }
+    return operations_map.get(control_type, [])
+
+# 初始化 control_type 计数
+control_type_count = {}
+
+# 连接到应用程序
+app = Application(backend="uia").start("notepad.exe")
+
+# 获取主窗口
+main_window = app.window(handle=1644292)
+
+
+control_type = main_window.element_info.control_type
+if control_type in control_type_count:
+    control_type_count[control_type] += 1
+else:
+    control_type_count[control_type] = 1
+# 开始遍历顶层窗口及其所有子控件
+count_control_types(window, control_type_count=control_type_count)
+
+# 打印控件类型汇总信息
+print_control_type_summary(control_type_count)
+
+kj1 =  window.child_window(handle=461736)
+print(dir(kj1))
+kj1.print_control_identifiers
+kj1.get_text()
+kj1.window
+kj1.child_window()
+kj1.dump_tree()
+print(kj1.app)
+print(kj1.window)
+kj1.click()
+
+windows_1 = findwindows.find_elements(handle=267628)
+dir(windows_1)
+windows_2 = findwindows.find_elements(control_type="Button")
