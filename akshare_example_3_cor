@@ -1,0 +1,74 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Oct 12 14:02:43 2024
+
+@author: 1
+"""
+
+import akshare as ak
+import numpy as np
+import pandas as pd
+import datetime
+from itertools import product
+import taichi as ti
+# 记录一百只股票的收益率的波动
+begt = "20240101"
+endt = "20241001"
+thres = 3000
+stock_info_a_code_name_df = ak.stock_info_a_code_name()
+# thres = len(stock_info_a_code_name_df)
+# df_rate = pd.DataFrame(columns=['日期','股票代码','收益率'])
+df_sum = pd.DataFrame()
+for i in stock_info_a_code_name_df.index:
+    if i<=thres :
+        try:
+           data = ak.stock_zh_a_hist(symbol=stock_info_a_code_name_df.loc[i,"code"], period="daily", start_date=begt, end_date=endt, adjust="")
+           data['累计涨跌幅'] = data['涨跌幅'].cumsum()
+           # data['收益率'] = data['收盘价'].shift(-1)/data['收盘价'] 
+           df_sum = pd.concat([df_sum,data],ignore_index=True)
+        except Exception as e:
+           print(f"有新股{stock_info_a_code_name_df.loc[i,:]}")
+
+date_ser = df_sum['日期'].unique()
+code_ser = df_sum['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+merged_df = pd.merge(result_df, df_sum, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+code_li = merged_df.columns[2:].to_list()
+for i in merged_df.index:
+    if pd.isna(merged_df.loc[i,'累计涨跌幅']):
+       if i>0:
+          if merged_df.loc[i,'股票代码'] == merged_df.loc[i-1,'股票代码']:
+              merged_df.loc[i,code_li[2:]]  = merged_df.loc[i-1,code_li[2:]]
+              
+          else:
+              merged_df.loc[i,code_li[2:]]  = merged_df.loc[i+1,code_li[2:]]
+              
+       else:
+            merged_df.loc[i,code_li[2:]]  = merged_df.loc[i+1,code_li[2:]]
+
+# merged_df[merged_df[code_li[-1]].isna()]
+base = 0
+base_df = merged_df[merged_df['股票代码']==stock_info_a_code_name_df.loc[base,'code']]
+
+# compare = 100
+# compare_df = merged_df[merged_df['股票代码']==stock_info_a_code_name_df.loc[compare,'code']]
+
+a = base_df['涨跌幅'].to_numpy()
+# b = compare_df['涨跌幅'].to_numpy()
+def cor(x1,x2):
+    return np.dot(x1,x2)/(np.linalg.norm(x1)*np.linalg.norm(x2))
+result = pd.DataFrame(columns=['code','name','relation'])
+for i in range(thres):
+    compare_df = merged_df[merged_df['股票代码']==stock_info_a_code_name_df.loc[i,'code']]
+    b = compare_df['涨跌幅'].to_numpy()
+    try:
+      tp = cor(a,b)
+      # print(stock_info_a_code_name_df.loc[i,'code'],tp)
+      result.loc[i,'code'] = stock_info_a_code_name_df.loc[i,'code']
+      result.loc[i,'name'] = stock_info_a_code_name_df.loc[i,'name']
+      result.loc[i,'relation'] = tp
+    except Exception as e:
+      print(f"有新上市股票{stock_info_a_code_name_df.loc[i,:]}")
