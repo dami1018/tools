@@ -1,0 +1,108 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Oct 12 21:04:16 2024
+
+@author: 1
+"""
+
+import akshare as ak
+import numpy as np
+import pandas as pd
+import datetime
+from itertools import product
+import taichi as ti
+# 记录一百只股票的收益率的波动
+begt = "20240101"
+endt = "20241001"
+thres = 100
+stock_info_a_code_name_df = ak.stock_info_a_code_name()
+# df_rate = pd.DataFrame(columns=['日期','股票代码','收益率'])
+df_sum = pd.DataFrame()
+for i in stock_info_a_code_name_df.index:
+    if i<=100 :
+       data = ak.stock_zh_a_hist(symbol=stock_info_a_code_name_df.loc[i,"code"], period="daily", start_date=begt, end_date=endt, adjust="")
+       data['累计涨跌幅'] = data['涨跌幅'].cumsum()
+       # data['收益率'] = data['收盘价'].shift(-1)/data['收盘价'] 
+       df_sum = pd.concat([df_sum,data],ignore_index=True)
+# df_sum['股票代码'].count()
+# df_sum['股票代码'].unique()
+# df_sum['股票代码'].nunique()
+# 生成随机数组，确定坐标系
+
+random_data = np.random.normal(0,1,size=(101,2))
+zeros_column = np.zeros((101,1))
+pos = np.hstack((random_data, zeros_column))
+
+date_ser = df_sum['日期'].unique()
+code_ser = df_sum['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+merged_df = pd.merge(result_df, df_sum, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+# data_temp = merged_df[merged_df['日期']==date].sort_values(by='股票代码',ascending=True).reset_index()
+# date = datetime.date(2024, 4, 30)
+for i in merged_df.index:
+    if pd.isna(merged_df.loc[i,'累计涨跌幅']):
+       if i>0:
+          if merged_df.loc[i,'股票代码'] == merged_df.loc[i-1,'股票代码']:
+              merged_df.loc[i,'累计涨跌幅']  = merged_df.loc[i-1,'累计涨跌幅'] 
+          else:
+              merged_df.loc[i,'累计涨跌幅'] = 0
+       else:
+            merged_df.loc[i,'累计涨跌幅'] = 0
+            
+data_temp = merged_df[merged_df['日期']==date_ser[0]].sort_values(by='股票代码',ascending=True).reset_index()
+pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/10 
+               
+ti.init(arch=ti.cpu)  # 或者使用 ti.gpu
+# 转换点为 Taichi 矩阵
+num_points = len(pos)
+points_ti = ti.Vector.field(3, dtype=ti.f32, shape=num_points)
+for i in range(num_points):
+    points_ti[i] = pos[i]
+ball_radius = 0.01
+dim = 3
+# 坐标转化函数
+def T(a):
+    if dim == 2:
+        return a
+
+    phi, theta = np.radians(28), np.radians(32)
+
+    a = a - 0.5
+    x, y, z = a[:, 0], a[:, 1], a[:, 2]
+    c, s = np.cos(phi), np.sin(phi)
+    C, S = np.cos(theta), np.sin(theta)
+    x, z = x * c + z * s, z * c - x * s
+    u, v = x, y * C + z * S
+    return np.array([u, v]).swapaxes(0, 1) +5
+# 创建一个场景
+screen_res = (2000,1600)
+gui = ti.GUI('PBF3D', screen_res, background_color = 0xffffff) 
+frame=0
+i = 0
+center = np.array([[0,1],[1,0],[0,0]])
+center_3D = T(np.array([[0,0,0],
+                        [1,0,0],[0,1,0],[0,0,1],
+                        [2,0,0],[0,2,0],[0,0,2],
+                        [3,0,0],[0,3,0],[0,0,3],
+                        [0,4,0],[0,0,4],
+                        [0,0,5]
+                        ]))/10
+while gui.running and not gui.get_event(gui.ESCAPE):
+    gui.circles(T(pos)/10, radius=6, color=0x66ccff)
+    gui.circles(center, radius=20, color=0x66ccff)
+    gui.circles(center_3D, radius=20, color=0x66ccff)
+    frame+=1
+    if i<=100:
+        data_temp = merged_df[merged_df['日期']==date_ser[i]].sort_values(by='股票代码',ascending=True).reset_index()
+        pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/10
+        i += 1
+    else:
+        i = 0
+        data_temp = merged_df[merged_df['日期']==date_ser[i]].sort_values(by='股票代码',ascending=True).reset_index()
+        pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/10
+        i += 1
+    gui.show()
+    
