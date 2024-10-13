@@ -1,0 +1,122 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Oct 12 09:23:55 2024
+
+@author: 1
+"""
+
+import akshare as ak
+import numpy as np
+import pandas as pd
+import datetime
+from itertools import product
+import taichi as ti
+# 记录一百只股票的收益率的波动
+begt = "20240101"
+endt = "20241001"
+thres = 100
+stock_info_a_code_name_df = ak.stock_info_a_code_name()
+# df_rate = pd.DataFrame(columns=['日期','股票代码','收益率'])
+df_sum = pd.DataFrame()
+for i in stock_info_a_code_name_df.index:
+    if i<=100 :
+       data = ak.stock_zh_a_hist(symbol=stock_info_a_code_name_df.loc[i,"code"], period="daily", start_date=begt, end_date=endt, adjust="")
+       data['累计涨跌幅'] = data['涨跌幅'].cumsum()
+       # data['收益率'] = data['收盘价'].shift(-1)/data['收盘价'] 
+       df_sum = pd.concat([df_sum,data],ignore_index=True)
+# df_sum['股票代码'].count()
+# df_sum['股票代码'].unique()
+# df_sum['股票代码'].nunique()
+# 生成随机数组，确定坐标系
+
+random_data = np.random.normal(0,1,size=(101,2))
+zeros_column = np.zeros((101,1))
+pos = np.hstack((random_data, zeros_column))
+
+date_ser = df_sum['日期'].unique()
+code_ser = df_sum['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+merged_df = pd.merge(result_df, df_sum, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+# data_temp = merged_df[merged_df['日期']==date].sort_values(by='股票代码',ascending=True).reset_index()
+# date = datetime.date(2024, 4, 30)
+for i in merged_df.index:
+    if pd.isna(merged_df.loc[i,'累计涨跌幅']):
+       if i>0:
+          if merged_df.loc[i,'股票代码'] == merged_df.loc[i-1,'股票代码']:
+              merged_df.loc[i,'累计涨跌幅']  = merged_df.loc[i-1,'累计涨跌幅'] 
+          else:
+              merged_df.loc[i,'累计涨跌幅'] = 0
+       else:
+            merged_df.loc[i,'累计涨跌幅'] = 0
+            
+data_temp = merged_df[merged_df['日期']==date_ser[0]].sort_values(by='股票代码',ascending=True).reset_index()
+pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/100 
+               
+ti.init(arch=ti.gpu)  # 或者使用 ti.gpu
+# 转换点为 Taichi 矩阵
+num_points = len(pos)
+points_ti = ti.Vector.field(3, dtype=ti.f32, shape=num_points)
+for i in range(num_points):
+    points_ti[i] = pos[i]
+ball_radius = 0.01
+
+
+ball_center_1 = ti.Vector.field(3, dtype=float, shape=(7, ))
+ball_center_1[0] = [1, 0, 0]
+ball_center_1[1] = [0, 1, 0]
+ball_center_1[2] = [0, 0, 1]
+ball_center_1[3] = [0, 0, 0]
+ball_center_1[4] = [0, 0, 2]
+ball_center_1[5] = [0, 0, 3]
+ball_center_1[6] = [0, 2, 0]
+# 创建一个场景
+window = ti.ui.Window("Taichi Cloth Simulation on GGUI", (1024, 1024),
+                      vsync=True)
+canvas = window.get_canvas()
+canvas.set_background_color((1, 1, 1))
+scene = window.get_scene()
+# scene = ti.ui.Scene()
+camera = ti.ui.Camera()
+
+i = 1
+while window.running and not window.is_pressed(ti.ui.ESCAPE):
+
+
+    # camera.position(0.0, 0.0, 15)
+    camera.position(5, 5, 5)
+    camera.lookat(0.0, 0.0, 0)
+    scene.set_camera(camera)
+
+    scene.point_light(pos=(0, 1, 2), color=(1, 1, 1))
+    scene.ambient_light((0.5, 0.5, 0.5))
+
+    # 绘制小球
+    scene.particles(points_ti, radius=ball_radius, color=(0.5, 0.42, 0.8))
+    canvas.scene(scene)
+
+    
+    # Draw a smaller ball to avoid visual penetration
+    scene.particles(points_ti, radius=ball_radius , color=(0.5, 0.42, 0.8))
+    
+    scene.particles(ball_center_1, radius=ball_radius * 3, color=(0.5, 0.42, 0.8))
+    
+    canvas.scene(scene)
+    if i<=100:
+        data_temp = merged_df[merged_df['日期']==date_ser[i]].sort_values(by='股票代码',ascending=True).reset_index()
+        pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/10 
+        i += 1
+    else:
+        i = 0
+        data_temp = merged_df[merged_df['日期']==date_ser[i]].sort_values(by='股票代码',ascending=True).reset_index()
+        pos[:,2] = data_temp['累计涨跌幅'].to_numpy()/10
+        i += 1
+    for j in range(num_points):
+        points_ti[j] = pos[j]
+
+    window.show()
+    
+
+
