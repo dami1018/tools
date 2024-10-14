@@ -1,0 +1,87 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 14 20:20:55 2024
+
+@author: 1
+"""
+
+
+import selenium
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from lxml import etree
+from bs4 import BeautifulSoup
+import urllib
+import numpy as np
+import pandas as pd
+import re
+# /html/body/div/div/div/div[4]/div[2]/div[2]/div/div/div[1]/ul/li[129]/div[2]
+# /html/body/div/div/div/div[4]/div[2]/div[1]/div/div/div[1]/ul/li[656]
+# 1、方法一：使用soup来解析数据，通过li来定位，如果不等待，个人数据无法获得
+# 只有公司的数据没有个人数据（可能因为等待时间不够长），由于圆括号不规则所以还有没办法处理的圆括号
+'''
+def remove_parentheses(text):
+    text_without_parentheses = re.sub(r'$|$', '', text)  # 去掉英文圆括号
+    text_without_parentheses = re.sub(r'（|）', '', text_without_parentheses)  # 去掉中文圆括号
+    return ''.join(text_without_parentheses)
+def extract_chinese(text):
+    chinese_characters = re.findall(r'[\u4e00-\u9fff]+', text)    
+    return ''.join(chinese_characters)
+
+driver = webdriver.Chrome()
+driver.get("https://neris.csrc.gov.cn/shixinchaxun/")
+data=driver.page_source
+soup=BeautifulSoup(data,'html.parser')
+li_elements=soup.find_all('li')
+li_df = pd.DataFrame(columns=['公司名称','组织代码号'])
+i = 0
+for li_element in li_elements:
+    temp_all = remove_parentheses(li_element.text)
+    temp_chi = extract_chinese(temp_all)
+    li_df.loc[i,"公司名称"] = temp_chi
+    li_df.loc[i,"组织代码号"] = temp_all.replace(temp_chi,'')
+    i += 1
+    
+li_df.to_excel(r'd:\失信名单.xlsx',index = False)    
+'''
+
+# 2、等待之后，爬取的网页数据有个人数据，但是通过find_all('li')是无法定位个人数据的
+'''
+driver = webdriver.Chrome()
+driver.get("https://neris.csrc.gov.cn/shixinchaxun/")
+data_1=driver.page_source
+soup1=BeautifulSoup(data,'html.parser')
+li_elements=soup1.find_all('li')
+li_df = pd.DataFrame(columns=['公司名称','组织代码号'])
+i = 0
+for li_element in li_elements:
+    temp_all = remove_parentheses(li_element.text)
+    temp_chi = extract_chinese(temp_all)
+    li_df.loc[i,"公司名称"] = temp_chi
+    li_df.loc[i,"组织代码号"] = temp_all.replace(temp_chi,'')
+    i += 1
+'''
+# 3、通过直接解析data数据，正则表达式匹配，获得名称和编码
+driver = webdriver.Chrome()
+driver.get("https://neris.csrc.gov.cn/shixinchaxun/")
+data_1=driver.page_source
+# 定义正则表达式
+# pattern = r'style="width: \d+%;">(.*?)</div>'
+pattern = r'obj_name&quot;:&quot;(.*?)&quot;'
+# 找到所有匹配的字符串
+matches = re.findall(pattern, data_1)
+pattern = r'&quot;card_number&quot;:&quot;(.*?)&quot;'
+# 找到所有匹配的字符串
+no_matches = re.findall(pattern, data_1)
+qli_df = pd.DataFrame(columns=['名称','编码'])
+qli_df['名称'] = matches
+qli_df['编码'] = no_matches
+df_unique = qli_df.drop_duplicates().reset_index()
+df_unique.to_excel(r'd:\失信名单(个人+公司).xlsx',index = False) 
+# 定位的元素特征
+'''    
+<div data-v-16dccde2="" data-code="{&quot;obj_type&quot;:2,&quot;remark&quot;:&quot;\u0016LC\u0015D\u0016@\u0016BLED@D\u0015CMCDEA\u0016EE\u0017L\u0015\u0010A\u0017\u0012M&quot;,&quot;obj_name&quot;:&quot;李伟森&quot;,&quot;card_number&quot;:&quot;120225**********78&quot;}" class="title cup" style="width: 30%;">李伟森</div>
+<div data-v-16dccde2="" data-code="{&quot;obj_type&quot;:2,&quot;remark&quot;:&quot;\u0017CBF\u0011\u0012CA@F\u0012\u0015@BMA\u0016A\u0017F\u0012\u0017\u0011M\u0010MCE\u0012DC\u0015&quot;,&quot;obj_name&quot;:&quot;于盛&quot;,&quot;card_number&quot;:&quot;310110**********14&quot;}" class="date cup">310110**********14</div>
+'''
