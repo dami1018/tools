@@ -1,0 +1,433 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Oct 25 19:00:42 2024
+
+@author: 1
+"""
+
+import geopandas as gpd
+import json
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import pandas as pd
+import numpy as np
+# 读入地图数据，画图数据，
+path = r"d:\china.json"
+path1 = r"d:\hot.xlsx"
+hot = pd.read_excel(path1)
+map_df = gpd.read_file(path)
+merge_df = pd.merge(map_df,hot,left_on='name',
+                 right_on='name')
+merge_df = gpd.GeoDataFrame(merge_df)
+merge_df.geom_type
+
+gs_data = open(path,encoding='utf8').read()
+gs_data = json.loads(gs_data)
+
+# 1、画出中国地图
+mpl.rcParams['font.sans-serif'] = ['Times New Roman']
+mpl.rcParams['font.sans-serif'] = [u'SimHei']
+mpl.rcParams['axes.unicode_minus'] = False
+# 裁剪上海shape
+fig, ax = plt.subplots(figsize=(20, 10))
+ax=map_df.plot(ax=ax,facecolor='grey',edgecolor='white',linestyle='--',alpha=0.8)
+ax.axis('off') # 移除坐标轴
+
+# 2、画出中国地图并且用热力图的方式标注数量
+fig, ax = plt.subplots(figsize=(20, 10))
+merge_df.plot('hot', cmap='OrRd',ax=ax)
+ax.axis('off') # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(merge_df['hot']), max(merge_df['hot']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),ax=ax)
+ax=merge_df.plot(ax=ax,facecolor='grey',edgecolor='white',linestyle='--',alpha=0.2)
+ax.set_title('中国热力图', fontsize=20)
+
+# 3、画出中国地图并且加入文本位置
+fig, ax = plt.subplots(figsize=(20, 10))
+merge_df.plot('hot', cmap='OrRd',ax=ax)
+for idx, _ in enumerate(map_df.geometry.representative_point()):
+    # 提取行政区名称
+    region = map_df.loc[idx, 'name'] + '\n' + str(merge_df.loc[idx,'hot'])
+    ax.text(_.x, _.y, region, ha="center", va="center", size=12)
+ax.axis('off') # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(merge_df['hot']), max(merge_df['hot']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap),ax=ax)
+ax=map_df.plot(ax=ax,facecolor='grey',edgecolor='white',linestyle='--',alpha=0.2)
+ax.set_title('中国热力图', fontsize=20)
+
+# 4、画中国地图并且用圆的面积表示数量
+import numpy as np
+fig, ax = plt.subplots(figsize=(20, 10))
+merge_df.plot('hot', cmap='OrRd', ax=ax)
+# 确定比例因子（需要根据实际情况调整）
+scale_factor = 0.01  # 比例因子用于控制圆的大小
+for idx, _ in enumerate(map_df.geometry.representative_point()):
+    # 提取行政区名称和对应热度值
+    region = map_df.loc[idx, 'name'] + '\n' + str(merge_df.loc[idx, 'hot'])
+    ax.text(_.x, _.y, region, ha="center", va="center", size=9)
+    # 获取当前热度值并计算圆的半径
+    hot_value = merge_df.loc[idx, 'hot']
+    radius = np.sqrt(hot_value * scale_factor)  # 根据热度值计算半径，取平方根以便面积成正比
+    # 绘制圆
+    circle = plt.Circle((_.x, _.y), radius, color='blue', alpha=0.5)  # 选择合适的颜色和透明度
+    ax.add_patch(circle)  # 将圆添加到坐标轴
+ax.axis('off')  # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(merge_df['hot']), max(merge_df['hot']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+ax = map_df.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2)
+ax.set_title('中国热力图', fontsize=20)
+
+# 5、开户数量图
+# 5.1 数据准备
+path = r'd:\普通账户机构客户筛选2024年新增.xlsx'
+path1 = r'd:\对应表.xlsx'
+path2 = r"d:\china.json"
+df_geo = gpd.read_file(path2)
+df_cus = pd.read_excel(path)
+df_pair = pd.read_excel(path1)
+# df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','count')).reset_index()
+df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','nunique')).sort_values(by='客户数量',ascending=(False)).reset_index()
+df_merge = pd.merge(df_geo,df_pair,left_on='name',right_on='省份')
+df_merge = pd.merge(df_merge,df_cus_sum,left_on='分公司',right_on='分公司')
+# 5.2 画图
+fig, ax = plt.subplots(figsize=(20, 10))
+df_merge.plot('客户数量', cmap='OrRd', ax=ax)
+# 确定比例因子（需要根据实际情况调整）
+scale_factor = 0.01  # 比例因子用于控制圆的大小
+for idx, _ in enumerate(df_merge.geometry.representative_point()):
+    # 提取行政区名称和对应热度值
+    region = df_merge.loc[idx, '分公司'] + '\n' + str(df_merge.loc[idx, '客户数量']) + '户'
+    ax.text(_.x, _.y, region, ha="center", va="center", size=12)
+    # 获取当前热度值并计算圆的半径
+    hot_value = df_merge.loc[idx, '客户数量']
+    radius = np.sqrt(hot_value * scale_factor)  # 根据热度值计算半径，取平方根以便面积成正比
+    # 绘制圆
+    circle = plt.Circle((_.x, _.y), radius, color='blue', alpha=0.1)  # 选择合适的颜色和透明度
+    ax.add_patch(circle)  # 将圆添加到坐标轴
+ax.axis('off')  # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(df_merge['客户数量']), max(df_merge['客户数量']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2)
+ax.set_title('机构客户开户分布', fontsize=20)
+
+# 6、开户数量图,没有填充，只有边框，画出的图很丑
+# 6.1 数据准备
+path = r'd:\普通账户机构客户筛选2024年新增.xlsx'
+path1 = r'd:\对应表.xlsx'
+path2 = r"d:\china.json"
+df_geo = gpd.read_file(path2)
+df_cus = pd.read_excel(path)
+df_pair = pd.read_excel(path1)
+# df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','count')).reset_index()
+df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','nunique')).sort_values(by='客户数量',ascending=(False)).reset_index()
+df_merge = pd.merge(df_geo,df_pair,left_on='name',right_on='省份')
+df_merge = pd.merge(df_merge,df_cus_sum,left_on='分公司',right_on='分公司')
+# 6.2 画图
+fig, ax = plt.subplots(figsize=(20, 10))
+df_merge.plot('客户数量', cmap='OrRd', ax=ax)
+# 确定比例因子（需要根据实际情况调整）
+scale_factor = 0.01  # 比例因子用于控制圆的大小
+for idx, _ in enumerate(df_merge.geometry.representative_point()):
+    # 提取行政区名称和对应热度值
+    region = df_merge.loc[idx, '分公司'] + '\n' + str(df_merge.loc[idx, '客户数量'])
+    ax.text(_.x, _.y, region, ha="center", va="center", size=11)
+    # 获取当前热度值并计算圆的半径
+    hot_value = df_merge.loc[idx, '客户数量']
+    radius = np.sqrt(hot_value * scale_factor)  # 根据热度值计算半径，取平方根以便面积成正比
+    # 绘制圆
+    # circle = plt.Circle((_.x, _.y), radius, color='blue', alpha=0.1)  # 选择合适的颜色和透明度
+    circle = plt.Circle((_.x, _.y), radius, color='blue', fill=False, linewidth=2, alpha=0.5) 
+    ax.add_patch(circle)  # 将圆添加到坐标轴
+ax.axis('off')  # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(df_merge['客户数量']), max(df_merge['客户数量']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2)
+ax.set_title('中国热力图', fontsize=20)
+
+# 7、开户数量图，要将北京分公司分开，显示在内蒙分公司附近
+# 7.1 数据准备
+path = r'd:\普通账户机构客户筛选2024年新增.xlsx'
+path1 = r'd:\对应表.xlsx'
+path2 = r"d:\china.json"
+df_geo = gpd.read_file(path2)
+df_cus = pd.read_excel(path)
+df_pair = pd.read_excel(path1)
+# df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','count')).reset_index()
+df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','nunique')).sort_values(by='客户数量',ascending=(False)).reset_index()
+df_merge = pd.merge(df_geo,df_pair,left_on='name',right_on='省份')
+df_merge = pd.merge(df_merge,df_cus_sum,left_on='分公司',right_on='分公司')
+# 7.2 画图
+fig, ax = plt.subplots(figsize=(20, 10))
+df_merge.plot('客户数量', cmap='OrRd', ax=ax)
+# 确定比例因子（需要根据实际情况调整）
+scale_factor = 0.01  # 比例因子用于控制圆的大小
+for idx, row in enumerate(df_merge.itertuples(index=False)):
+    # 提取行政区名称和对应热度值
+    region = df_merge.loc[idx, '分公司'] + '\n' + str(df_merge.loc[idx, '客户数量']) + '户'
+    ax.text(row.x, row.y, region, ha="center", va="center", size=12)
+    # 获取当前热度值并计算圆的半径
+    hot_value = df_merge.loc[idx, '客户数量']
+    radius = np.sqrt(hot_value * scale_factor)  # 根据热度值计算半径，取平方根以便面积成正比
+    # 绘制圆
+    if df_merge.loc[idx, '分公司']=='北京分公司':
+        circle = plt.Circle((row.x, row.y), radius, color='blue', alpha=0.1)
+    else:
+        circle = plt.Circle((row.x, row.y), radius, color='blue', alpha=0.1)  # 选择合适的颜色和透明度
+    ax.add_patch(circle)  # 将圆添加到坐标轴
+ax.axis('off')  # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(df_merge['客户数量']), max(df_merge['客户数量']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2)
+ax.set_title('机构客户开户分布', fontsize=20)
+
+# 8、开户数量图，要将北京分公司分开，一鹦鹉螺先的方式分布排列
+# 8.1 数据准备
+path = r'd:\普通账户机构客户筛选2024年新增.xlsx'
+path1 = r'd:\对应表.xlsx'
+path2 = r"d:\china.json"
+df_geo = gpd.read_file(path2)
+df_cus = pd.read_excel(path)
+df_pair = pd.read_excel(path1)
+# df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','count')).reset_index()
+df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','nunique')).sort_values(by='客户数量',ascending=(False)).reset_index()
+df_merge = pd.merge(df_geo,df_pair,left_on='name',right_on='省份')
+df_merge = pd.merge(df_merge,df_cus_sum,left_on='分公司',right_on='分公司')
+df_merge['x'] = df_merge['geometry'].representative_point().x
+df_merge['y'] = df_merge['geometry'].representative_point().y
+df_merge_just = df_merge
+# 对坐标进行微调，比如北京各分公司的坐标
+beijing = (116.586921, 40.38575)
+center = beijing
+begin = (42, 110)
+end = (45, 122)
+# 画海螺线，感觉跟直线差不多，海螺线的计算方式也有问题
+def calculate_spiral_points(center, begin, end, num_points=3):
+    # 计算begin到end的极坐标
+    r_start = np.sqrt((begin[0] - center[0])**2 + (begin[1] - center[1])**2)
+    r_end = np.sqrt((end[0] - center[0])**2 + (end[1] - center[1])**2)
+    
+    # 计算极角
+    theta_start = np.arctan2(begin[1] - center[1], begin[0] - center[0])
+    theta_end = np.arctan2(end[1] - center[1], end[0] - center[0])
+    
+    # 生成等距的theta
+    delta_theta = (theta_end - theta_start) / (num_points + 1)
+    
+    points = []
+    
+    for i in range(1, num_points + 1):
+        # 计算新的极坐标
+        theta = theta_start + i * delta_theta
+        r = r_start + (i / (num_points + 1)) * (r_end - r_start)  # 线性插值半径
+        
+        # 转回笛卡尔坐标
+        x = center[0] + r * np.cos(theta)
+        y = center[1] + r * np.sin(theta)
+        points.append((x, y))
+    
+    return points
+
+# 对点坐标进行调整
+spiral_points = calculate_spiral_points(center, begin, end)
+pos = []
+pos.append(begin)
+pos.append(spiral_points[0])
+pos.append(spiral_points[1])
+pos.append(spiral_points[2])
+pos.append(end)
+# 将坐标更新到merge中
+num = 0
+for idx, row in enumerate(df_merge_just.itertuples(index=False)):
+    if row.省份=='北京市':
+        df_merge_just.loc[idx,'x'] = pos[num][1]
+        df_merge_just.loc[idx,'y'] = pos[num][0]
+        num += 1
+df_merge = df_merge_just
+# 8.2 画图
+fig, ax = plt.subplots(figsize=(20, 10))
+df_merge.plot('客户数量', cmap='OrRd', ax=ax)
+# 确定比例因子（需要根据实际情况调整）
+scale_factor = 0.01  # 比例因子用于控制圆的大小
+for idx, row in enumerate(df_merge.itertuples(index=False)):
+    # 提取行政区名称和对应热度值
+    region = df_merge.loc[idx, '分公司'] + '\n' + str(df_merge.loc[idx, '客户数量']) + '户'
+    ax.text(row.x, row.y, region, ha="center", va="center", size=12)
+    # 获取当前热度值并计算圆的半径
+    hot_value = df_merge.loc[idx, '客户数量']
+    radius = np.sqrt(hot_value * scale_factor)  # 根据热度值计算半径，取平方根以便面积成正比
+    # 绘制圆
+    if df_merge.loc[idx, '分公司']=='北京分公司':
+        circle = plt.Circle((row.x, row.y), radius, color='blue', alpha=0.1)
+    else:
+        circle = plt.Circle((row.x, row.y), radius, color='blue', alpha=0.1)  # 选择合适的颜色和透明度
+    ax.add_patch(circle)  # 将圆添加到坐标轴
+ax.axis('off')  # 移除坐标轴
+cmap = mpl.cm.get_cmap('OrRd')
+norm = mpl.colors.Normalize(min(df_merge['客户数量']), max(df_merge['客户数量']))
+fcb = fig.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax)
+ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2)
+ax.set_title('机构客户开户分布', fontsize=20)
+
+
+
+# 9 合并区域
+# 9.1基本数据准备
+path = r'd:\普通账户机构客户筛选2024年新增.xlsx'
+path1 = r'd:\对应表.xlsx'
+path2 = r"d:\china.json"
+df_geo = gpd.read_file(path2)
+df_cus = pd.read_excel(path)
+df_pair = pd.read_excel(path1)
+# df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','count')).reset_index()
+df_cus_sum = df_cus.groupby(['分公司']).agg(客户数量=('账户名称','nunique')).sort_values(by='客户数量',ascending=(False)).reset_index()
+df_merge = pd.merge(df_geo,df_pair,left_on='name',right_on='省份')
+df_merge = pd.merge(df_merge,df_cus_sum,left_on='分公司',right_on='分公司')
+df_merge['x'] = df_merge['geometry'].representative_point().x
+df_merge['y'] = df_merge['geometry'].representative_point().y
+df_merge_just = df_merge
+# 对坐标进行微调，比如北京各分公司的坐标
+beijing = (116.586921, 40.38575)
+center = beijing
+begin = (42, 110)
+end = (45, 122)
+# 画海螺线，感觉跟直线差不多，海螺线的计算方式也有问题
+def calculate_spiral_points(center, begin, end, num_points=3):
+    # 计算begin到end的极坐标
+    r_start = np.sqrt((begin[0] - center[0])**2 + (begin[1] - center[1])**2)
+    r_end = np.sqrt((end[0] - center[0])**2 + (end[1] - center[1])**2)
+    
+    # 计算极角
+    theta_start = np.arctan2(begin[1] - center[1], begin[0] - center[0])
+    theta_end = np.arctan2(end[1] - center[1], end[0] - center[0])
+    
+    # 生成等距的theta
+    delta_theta = (theta_end - theta_start) / (num_points + 1)
+    
+    points = []
+    
+    for i in range(1, num_points + 1):
+        # 计算新的极坐标
+        theta = theta_start + i * delta_theta
+        r = r_start + (i / (num_points + 1)) * (r_end - r_start)  # 线性插值半径
+        
+        # 转回笛卡尔坐标
+        x = center[0] + r * np.cos(theta)
+        y = center[1] + r * np.sin(theta)
+        points.append((x, y))
+    
+    return points
+# 对点坐标进行调整
+spiral_points = calculate_spiral_points(center, begin, end)
+pos = []
+pos.append(begin)
+pos.append(spiral_points[0])
+pos.append(spiral_points[1])
+pos.append(spiral_points[2])
+pos.append(end)
+# 将坐标更新到merge中
+num = 0
+for idx, row in enumerate(df_merge_just.itertuples(index=False)):
+    if row.省份=='北京市':
+        df_merge_just.loc[idx,'x'] = pos[num][1]
+        df_merge_just.loc[idx,'y'] = pos[num][0]
+        num += 1
+df_merge = df_merge_just
+# 9.2合并区域数据准备
+selected_areas = df_merge_just[df_merge_just['分公司'].isin(['广东分公司', '福建分公司','广西分公司'])].reset_index()
+new_area = selected_areas.dissolve()
+# new_area_coords = new_area.geometry.exterior.coords[:]  # 获取外部边界坐标
+# 
+new_area_coords = new_area.geometry.values[0].exterior.coords[:]  # 获取外部边界坐标
+# 输出新区域的坐标
+# print("新区域的矢量坐标:")
+# print(new_area_coords)
+# 可视化结果
+fig, ax = plt.subplots(figsize=(20, 10))
+ax.axis('off')  # 移除坐标轴
+# df_geo.plot(ax=ax, color='lightgrey', edgecolor='black')  # 原始区域
+# ax = df_geo.plot(ax=ax, color='lightgrey', edgecolor='black') 
+# ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='white', linestyle='--', alpha=0.2) # 没有边框了，因为边框颜色选择白色所以就没有边框了
+ax = df_geo.plot(ax=ax, facecolor='grey', edgecolor='black', linewidth=1, linestyle='-', alpha=0.5)
+new_area.plot(ax=ax, color='blue', edgecolor='black',alpha=0.1)  # 新合并区域
+ax.set_title('区域合并示例')
+plt.show()
+
+
+
+
+
+# 练习尝试
+df_merge[df_merge['省份']=='北京市'].geometry.representative_point().y
+df_merge['x'] = df_merge['geometry'].representative_point().x
+df_merge['y'] = df_merge['geometry'].representative_point().y
+df_merge_just = df_merge
+df_merge = df_merge_just
+# df_merge['x'] + 1.0
+x = 110.0
+y = 45.0
+num = 0
+for idx, row in enumerate(df_merge_just.itertuples(index=False)):
+    if row.省份=='北京市':
+        df_merge_just.loc[idx,'x'] = pos[num][1]
+        df_merge_just.loc[idx,'y'] = pos[num][0]
+        num += 1
+beijing = (116.586921,40.38575)        
+center = beijing
+begin = (42,110)
+end = (45,122)
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 定义坐标
+beijing = (116.586921, 40.38575)
+center = beijing
+begin = (42, 110)
+end = (45, 122)
+# 画海螺线
+def calculate_spiral_points(center, begin, end, num_points=3):
+    # 计算begin到end的极坐标
+    r_start = np.sqrt((begin[0] - center[0])**2 + (begin[1] - center[1])**2)
+    r_end = np.sqrt((end[0] - center[0])**2 + (end[1] - center[1])**2)
+    
+    # 计算极角
+    theta_start = np.arctan2(begin[1] - center[1], begin[0] - center[0])
+    theta_end = np.arctan2(end[1] - center[1], end[0] - center[0])
+    
+    # 生成等距的theta
+    delta_theta = (theta_end - theta_start) / (num_points + 1)
+    
+    points = []
+    
+    for i in range(1, num_points + 1):
+        # 计算新的极坐标
+        theta = theta_start + i * delta_theta
+        r = r_start + (i / (num_points + 1)) * (r_end - r_start)  # 线性插值半径
+        
+        # 转回笛卡尔坐标
+        x = center[0] + r * np.cos(theta)
+        y = center[1] + r * np.sin(theta)
+        points.append((x, y))
+    
+    return points
+
+# 对点坐标进行调整，计算点坐标
+spiral_points = calculate_spiral_points(center, begin, end)
+pos = []
+pos.append(begin)
+pos.append(spiral_points[0])
+pos.append(spiral_points[1])
+pos.append(spiral_points[2])
+pos.append(end)
+spiral_points[2][0]
+
+for idx, row in enumerate(df_merge_just.itertuples(index=False)):
+    if row.省份=='北京市':
+        df_merge_just.loc[idx,'x'] = x
+        df_merge_just.loc[idx,'y'] = y
+        x += 3.0
