@@ -1,0 +1,1156 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Sep  8 14:22:30 2024
+
+@author: 1
+"""
+
+#使用pywinauto作为基础的python包
+#作为applicaition，desktop等调用，有uia后台模式，win32后台模式以及不选择三种模式
+#对于win11，发现uia模式运行速度太慢，Python长时间运行没有任何结果，win32模式总回报element not found的错，不选择这种模式一开始没有尝试
+#尝试之后发现，这种模式可以正常快速地操作notepad.exe而且win11要比笔记本的win10，运行报错更少
+#下面按照逐点逐级的方式对应用一个一个来自动化
+# 定位方式 classname
+# https://pywinauto.readthedocs.io/en/latest/code/pywinauto.application.html
+from pywinauto import Desktop
+from pywinauto import Application
+from pywinauto import findwindows
+from pywinauto.controls.uiawrapper import ToolTipWrapper  # 导入 ToolTipWrapper 类
+# 遍历children节点的函数
+def print_control_info(control, indent=0):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    print(f"{indent_str}" + "-" * 40)
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1)
+#第0，所有窗口和控件，目前有两种方式通过desktop或者通过findwindow
+# 获取桌面上的所有窗口
+# 通过desktop获得窗口信息
+windows = Desktop().windows()
+
+# 打印所有窗口和控件的信息
+for window in windows:
+    # print(f"窗口标题: {window.title_re()}")
+    print(f"窗口标题: {window.window_text()}")
+    print(f"窗口类名: {window.class_name()}")
+    print(f"窗口句柄: {window.handle}")
+    try:
+        window.print_control_identifiers()
+    except Exception as e:
+        print(f"打印控件信息失败: {e}")
+    print("-" * 40)
+
+# 打印所有窗口和空间信息到文件
+# 指定文件路径
+path = r"d:\log.txt"
+
+# 打开文件以写入内容
+with open(path, "w", encoding="utf-8") as file:
+    # 打印所有窗口和控件的信息
+    for window in windows:
+
+            file.write(f"窗口标题: {window.window_text()}\n")
+            file.write(f"窗口类名: {window.class_name()}\n")
+            file.write(f"窗口句柄: {window.handle}\n")
+            file.write("控件信息:\n")
+            try:
+                # 将控件信息写入文件，可以显示在屏幕上但是无法赋值，赋值之后就是空，必须重定向
+                control_info = window.print_control_identifiers()
+                file.write(control_info)
+            except Exception as e:
+                file.write(f"打印控件信息失败: {e}\n")
+            file.write("-" * 40 + "\n")
+
+print("窗口和控件信息已成功存储到 log.txt 文件中")
+# 第0，的后续，使用findwindow打印所有窗口，并获取窗口的title和handle信息
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+#第一，notepad
+#涉及到连接app，通过application有两种方式，第一start启动，第二connect联结，connect可以通过title或者handle定位
+#联结窗口有三种方式一个是通过app联结，一个是通过findelement联结，一个是通过desktop
+app_note = Application().start("notepad.exe")
+dlg = Desktop().window(class_name="Notepad")
+dlg.print_control_identifiers()
+#增加一些操作，根据dlg.print_control_identifiers()
+#对按钮进行操作，安装和关闭
+button_note_an = dlg.child_window(title="安装", class_name="Button")
+button_note_an.click()
+button_note_cl = dlg.child_window(title="关闭", class_name="Button")
+button_note_cl.click()
+#对note进行遍历操作
+#dir之后发现dlg的属性和方法没有什么不一样，但是没有children属性，但是可以children操作是可以的
+dir(dlg)
+dlg.children()
+print_control_info(dlg)
+#尝试对common_controls.StatusBarWrapper - '', StatusBar进行操作
+# 获取状态栏对象
+status_bar = dlg.StatusBar
+# 获取状态栏的文本，文本是一个列表，第一个元素为空，状态栏不为空，状态栏位于右下角
+status_text = status_bar.texts()[0]
+print(status_text)
+status_bar.texts()
+# 获取状态栏的所有子项，状态栏没有子项
+status_items = status_bar.children()
+# 打印每个子项的文本
+for item in status_items:
+    print(item.texts()[0])
+    item.texts()
+# 状态栏是否可见
+if status_bar.is_visible():
+    print("状态栏可见")
+else:
+    print("状态栏不可见")
+# 获取状态栏的各种属性，如类名、控件ID等。
+print("类名:", status_bar.class_name())
+print("控件ID:", status_bar.control_id())
+# 获取状态栏的位置和大小
+rect = status_bar.rectangle()
+print("位置和大小:", rect)
+# 可以看到以上所有操作都没有出现在dir中，dir涉及的只是很小的一部分，children遍历等也是很小的一部分
+dir(status_bar)
+# 模拟点击状态栏
+status_bar.click()
+# 等待状态栏的文本发生变化。
+# 获取初始状态栏文本
+initial_text = status_bar.texts()[0]
+# 等待状态栏文本变化
+import time
+timeout = 10  # 超时时间（秒）
+start_time = time.time()
+while time.time() - start_time < timeout:
+    current_text = status_bar.texts()[0]
+    if current_text != initial_text:
+        print("状态栏文本已变化:", current_text)
+        break
+    time.sleep(0.5)  # 每隔0.5秒检查一次
+else:
+    print("状态栏文本未在指定时间内变化")
+# 获取菜单，没有找到menubar
+menu_bar = dlg.menu_bar
+# 获取菜单栏
+menu_bar = dlg.menu()
+# 遍历菜单栏的所有菜单项，遍历完毕
+for menu_item in menu_bar.items():
+    print(menu_item)
+    print("菜单项文本:", menu_item.text())
+    menu_item.click()
+    # print("菜单项类名:", menu_item.class_name())
+    # print("菜单项控件ID:", menu_item.control_id())
+# 手动定位菜单栏,报错，通过item_py_path
+menu_bar = dlg.menu_bar()
+format_menu_item = menu_bar.item_by_path('格式(&O)')
+# 定位到特定的菜单项（例如：格式(&O)）
+format_menu_item = menu_bar.item_by_path('格式(&O)')
+# 打印菜单项文本
+print("菜单项文本:", format_menu_item.text())
+# 子窗口定位菜单,长时间运行但是还有结果,但是当打印的时候还是报文件没找到
+button_wj = dlg.child_window(title="文件(F)")
+button_wj.click()
+# 通过menu的列表定位,点击但是下拉菜单没有持续
+menu_button = []
+for menu_item in menu_bar.items():
+    menu_button.append(menu_item)
+menu_button[1].click()
+# dlg的操作列举
+# 设置窗口位置和大小
+dlg.move_window(x=100, y=100, width=800, height=600)
+# 获取窗口状态
+print("窗口状态:", dlg.get_show_state())
+# 最大化窗口
+dlg.maximize()
+# 最小化窗口
+dlg.minimize()
+# 恢复窗口
+dlg.restore()
+# 根据pywinauto来调用子窗口或者控件,Edit为别名，感觉操作功能在主窗口，不是通过子控件来完成的
+dlg.print_control_identifiers()
+dlg.print_ctrl_ids()
+# 清空原有内容
+dlg.Edit.set_text("new")
+# 不清空原有内容
+dlg.Edit.type_keys("new")
+# 适用范围更广
+dlg.Edit.click_input()
+print(dlg.Edit.texts())
+print(dlg.Edit.text_block())
+print(dlg.Edit.window_text())
+# 使窗口处于激活状态
+dlg.set_focus()
+#寻找 "文件(F)",dir是显示变量所属类的情况，但是变量有可能不存在
+button_wj = dlg.child_window(best_match="文件(F)")
+dir(button_wj)
+button_wj.print_control_identifiers() #没找到
+#寻找"应用程序" 没找到
+button_wj = dlg.child_window(best_match="应用程序")
+dir(button_wj)
+button_wj.print_control_identifiers() #没找到
+
+index = dlg.selected_item_index
+print(index)
+dir(index)
+index.print_control_identifiers() #没找到
+#没属性
+dlg.select()
+dlg.expand()
+# 少参数
+dlg.menu_select()
+
+
+
+dlg.type_keys("hello world")
+dlg.menu_select("文件->保存")
+save_dialog = Desktop().window(title="另存为")
+save_dialog.Edit.set_text("new")
+save_dialog.Button.click()
+
+#第二，中信建投app 中信建投网上交易卓越安全加强版V10.10 - [首页]
+#根据输出的信息进行确定对应的窗口
+dlg_jt = Desktop().window(class_name="TdxW_MainFrame_Class")
+dlg_jt.print_control_identifiers()
+# 菜单，dlg_jt没有menu
+dlg_jt.menu_select("行情")
+# 尝试定位某些控件， Edit控件,报错是不是必须得是一级子菜单才可以？,两个button17····
+dlg_jt.Edit.set_text("600036")
+dlg_jt.Button17.click()
+# 使用bestmatch,仍然报错有两个button17
+Button17 = dlg_jt.child_window(best_match='Button17')
+for i in Button17.items():
+    print(1)
+Button17.click()
+# 用child来获得所有符合要求的button
+# 一个是'StatusBarWrapper'
+# 一个是‘EditWrapper’
+all_buttons = dlg.children(best_match='Button17') 
+for button in all_buttons:
+    # print(dir(button))
+    button.click()
+    # button.set_text("输入的文本")
+    button.type_keys("输入的文本")
+    #没有这个属性
+    button.print_ctrl_ids()
+# 获得轨迹帮助定位
+import pyautogui
+pyautogui.FAILSAFE = False
+all_buttons = dlg.children(best_match='Button17') 
+dlg_jt.set_focus()
+for button in all_buttons:
+    button_rect = button.rectangle()
+    # 获取控件的位置
+    button_rect = button.rectangle()
+    print(button_rect)
+    x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+    y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+    
+    # 移动鼠标到控件位置并点击
+    pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+    # pyautogui.click()  # 执行点击操作
+    # 可选：打印当前位置
+    current_position = pyautogui.position()
+    print(f"当前鼠标位置: {current_position}")
+# 使用autogui对4个脚进行定位，
+# button17定位的是整个屏幕和下面的一个长条
+# 所有button都是一样的
+all_buttons = dlg.children(best_match='Button10') 
+dlg_jt.set_focus()
+for button in all_buttons:
+    button_rect = button.rectangle()
+    # 获取控件的位置
+    button_rect = button.rectangle()
+    print(button_rect)
+    x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+    y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+    # 移动鼠标到控件的四个角
+    pyautogui.moveTo(button_rect.left, button_rect.top, duration=1)
+    pyautogui.moveTo(button_rect.right, button_rect.top, duration=1)
+    pyautogui.moveTo(button_rect.right, button_rect.bottom, duration=1)
+    pyautogui.moveTo(button_rect.left, button_rect.bottom, duration=1)
+    pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+    # pyautogui.click()  # 执行点击操作
+    # 可选：打印当前位置
+    current_position = pyautogui.position()
+    print(f"当前鼠标位置: {current_position}")
+# 出错，输出信息为空
+# jt_control_info = dlg_jt.print_control_identifiers()
+# print(jt_control_info)
+
+# 输出重新定向
+from io import StringIO
+import sys
+# 获取主窗口,通过classname
+dlg_jt = Desktop().window(class_name="TdxW_MainFrame_Class")
+# 获取主窗口，通过title 或者 title_re 中信建投网上交易卓越安全加强版V10.10 - [首页],无法获取，找不到元素
+# dlg_jt = Desktop().window(title="中信建投网上交易卓越安全加强版V10.10 - [首页]")
+# 可以定位，但是名称不一样，首页是windows找到的，系统页面是通过parent找到的
+dlg_jt = Desktop().window(title="中信建投网上交易卓越安全加强版V10.10 - [系统页面]")
+# 使用 StringIO 重定向输出
+output = StringIO()
+original_stdout = sys.stdout
+sys.stdout = output
+
+# 打印控件信息
+dlg_jt.print_control_identifiers()
+
+# 恢复标准输出
+sys.stdout = original_stdout
+
+# 获取控件信息
+jt_control_info = output.getvalue()
+
+# 指定文件路径
+path = r"d:\log_jt_xt.txt"
+
+# 打开文件以写入内容
+with open(path, "w", encoding="utf-8") as file:
+    # 将控件信息写入文件
+    file.write(jt_control_info)
+
+print("控件信息已成功存储到 log.txt 文件中")
+
+# 定位控件
+try:
+    control1 = dlg_jt.child_window(class_name="AfxWnd100")
+    control1.click()
+    print("第一个控件点击成功")
+except Exception as e:
+    print(f"第一个控件点击失败: {e}")
+# 无法定位，加了title title_re auto_id都无法区分   
+control = dlg_jt.child_window(title_re="AfxWnd10023", class_name="AfxWnd100")
+control1.click()
+control = dlg_jt.child_window(auto_id="1001", class_name="AfxWnd100")
+control1.click()
+control = dlg_jt.child_window(found_index=1, class_name="AfxWnd100")
+control1.click()
+control = dlg_jt.child_window(title="AfxWnd10023", class_name="AfxWnd100")
+control1.click()
+control = dlg_jt.child_window(text="中信建投网上交易卓越安全加强版V10.10 - [系统页面]AfxWnd1008", class_name="AfxWnd100")
+control1.click()
+# 
+# 第三，换脸
+# 存在多种定位的方式
+# 定位方式一通过desktop定位,desktop打印出来的窗口要比findwindow多很多，
+dlg_hl = Desktop().window(title="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）")
+dlg_hl.print_control_identifiers()
+# 移动窗口，是有效的
+dlg_hl.move_window(x=2000, y=100, width=800, height=600)
+# AI人脸替换工具V5.6完整包
+#dlg_hl = Desktop().window(title="AI人脸替换工具V5.6完整包")
+#dlg_hl.print_control_identifiers()
+# classname可能有多个结果，应该用windows
+dlg_hl = Desktop().window(class_name="CabinetWClass")
+dlg_hl = Desktop().windows(class_name="CabinetWClass")
+dlg_hl.print_control_identifiers()
+
+dlg_hl1 = Desktop().window(handle=656544)
+dlg_hl1.print_control_identifiers()
+#人脸图片选择"
+# dlg_hl1 = Desktop().window(title="人脸图片选择")
+# dlg_hl1.print_control_identifiers()
+# 使用这种方法是因为，print_control_identifiers()无法存入变量，如果存入变量则打印为空，必须将输出输入文件
+output = StringIO()
+original_stdout = sys.stdout
+sys.stdout = output
+
+# 打印控件信息
+dlg_hl1.print_control_identifiers()
+# 恢复标准输出
+sys.stdout = original_stdout
+# 获取控件信息
+hl_control_info = output.getvalue()
+# 指定文件路径
+path = r"d:\log_hl.txt"
+# 打开文件以写入内容
+with open(path, "w", encoding="utf-8") as file:
+    # 将控件信息写入文件
+    file.write(hl_control_info)
+print("控件信息已成功存储到 log.txt 文件中")
+# 打印句柄
+child_handles = dlg_jt.children()
+# 采用之前用过的方法 失败
+app_ex = Application().connect(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+window = app_ex.window(title_re="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库")
+button = window.child_window(title="开始生成", control_type="Button")
+button.click()
+window = app_ex.window(title_re="GetOpenFileName")
+# 遍历所有子控件并打印句柄
+for child in child_handles:
+    print(f"控件句柄: {child.handle}")
+    
+#尝试 bestmatch方式，先选定一个window
+#bestmatch是一种搜索方式，是检索
+dlg_hl.Edit1.type_keys("d")
+
+#遍历所有的控件
+from pywinauto import findwindows
+from pywinauto import Application
+# 获取所有的窗口信息
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+# 找到换脸的window 
+app_1 = findwindows.find_element(handle=330156)
+# app_1.print_control_identifiers()  报错
+dir(app_1)
+for child in app_1.children():
+    print(dir(child))
+app_1.dump_window
+# 人脸替换工具，有children但是无法遍历
+app_2 = findwindows.find_element(handle=656544)
+dir(app_2)
+for child in app_2.children():
+    print(dir(child))
+def print_control_info(control, indent=0):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    print(f"{indent_str}" + "-" * 40)
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1)
+
+# 开始遍历顶层窗口及其所有子控件
+print_control_info(app_2)
+# 找到满足就特定条件的控件
+apps = findwindows.find_element(title='')
+# 找到满足所有条件的控件
+apps = findwindows.find_elements(title='')
+for app in apps:
+    print('-'*40)
+    print(dir(app))
+# 没找到人脸按钮，报错没找到,找到了人脸替换工具，改成title_re之后，但是title也找到了
+button_1 = findwindows.find_element(title_re="人脸图片选择")
+dir(button_1)
+button_1 = findwindows.find_element(title="AI人脸替换工具离线版V5.6（作者B站：万能君的软件库）")
+dir(button_1)
+print(button_1.control_type)
+print(button_1.class_name)
+print(button_1.rich_text)
+# 尝试一下children,没有任何内容
+button_1.children()
+for child in button_1.children():
+    print("d")
+button_2 = findwindows.find_element(title="AI人脸替换工具V5.6完整包")
+print(button_2.control_type)
+print(button_2.class_name)
+print(button_2.rich_text)
+button_2.children()
+for child in button_2.children():
+    print("d")
+# 通过app找人脸,通过find app topwindow 找到的window的属性 与find 的属性都不一样
+# 文件名称长的那个，最终什么都没有
+app_4 = Application().connect(handle=330156)
+
+window_4 = app_4.top_window()
+dir(window_4)
+window_4.print_control_identifiers
+dir(window)
+children_4 = window_4.children()
+# 遍历子控件并打印名称
+for child in children_4:
+    print(f"Child Window: {child}")
+    print(f"Class Name: {child.class_name()}")
+    print(f"Control Type: {child.element_info.control_type}")
+    print(f"Name: {child.window_text()}")
+    print(f"Handle: {child.handle}")
+    print(f"Is Enabled: {child.is_enabled()}")
+    print(f"Is Visible: {child.is_visible()}")
+    print(f"Bounding Rectangle: {child.rectangle()}")
+print_control_info(window_4)
+# 按照短的来遍历
+app_5 = Application().connect(handle=656544)
+window_5 = app_5.top_window()
+dir(window_5)
+window_5.print_control_identifiers
+children_5 = window_5.children()
+# 遍历子控件并打印名称
+for child in children_5:
+    print(f"Child Window: {child}")
+    print(f"Class Name: {child.class_name()}")
+    print(f"Control Type: {child.element_info.control_type}")
+    print(f"Name: {child.window_text()}")
+    print(f"Handle: {child.handle}")
+    print(f"Is Enabled: {child.is_enabled()}")
+    print(f"Is Visible: {child.is_visible()}")
+    print(f"Bounding Rectangle: {child.rectangle()}")
+# 遍历所有控件
+def print_control_info(control, indent=0):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name()}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    print(f"{indent_str}" + "-" * 40)
+    
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info(child, indent + 1)
+
+# 开始遍历顶层窗口及其所有子控件
+print_control_info(window_5)
+# 按照 findelement app topwindow
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+app_3 = Application().connect(handle=134668)
+window = app_3.top_window()
+children = window.children()
+dir(window)
+# 遍历子控件并打印名称
+for child in children:
+    print(f"Child Window: {child}")
+    print(f"Class Name: {child.class_name()}")
+    print(f"Control Type: {child.element_info.control_type}")
+    print(f"Name: {child.window_text()}")
+    print(f"Handle: {child.handle}")
+    print(f"Is Enabled: {child.is_enabled()}")
+    print(f"Is Visible: {child.is_visible()}")
+    print(f"Bounding Rectangle: {child.rectangle()}")
+    
+buttons = findwindows.find_element(control_type='Button')
+
+
+# 中信建投就网上交易窗口
+windows = Desktop().windows()
+for window in windows:
+    # print(f"窗口标题: {window.title_re()}")
+    print(f"窗口标题: {window.window_text()}")
+    print(f"窗口类名: {window.class_name()}")
+    print(f"窗口句柄: {window.handle}")
+windows = findwindows.find_elements()
+for window in windows:
+    print(f"Window Title: {window.rich_text}, Handle: {window.handle}")
+window_jt = Desktop().window(handle=33034574)
+dir(window_jt)
+window_jt.print_control_identifiers #无显示
+window_jt.children()
+#遍历
+print_control_info(window_jt)
+#定位资金账号
+window_zjzh = window_jt.child_window(handle=23532076)
+print_control_info(window_zjzh)
+# all_items = window_zjzh.items()
+# print("所有可选项目:", all_items)
+nickname = window_zjzh.window_text()  # 获取控件的文本作为别称
+print("控件的别称:", nickname)
+# window_text不是别名
+# 但是通过以下方式从报错的返回值中可以找到所有的别名
+window_jt.资金账号.click_input()
+window_zjzh.select()
+window_zjzh.click_input()
+#可以点击，但是不可以输入文本
+window_jt.Edit.click()
+window_jt.Edit0.click()
+window_jt.Edit3.click_input()
+window_jt.Edit0.set_text("821018")
+window_jt.Edit3.set_text("821018")
+window_jt.Edit.set_text("821018")
+window_jt.Edit1.click()
+window_jt.Edit1.set_text("821018")
+window_jt.Edit1.texts()
+window_jt.Edit2.texts()
+window_jt.Edit0.texts()
+window_jt.Edit2.click()
+window_jt.Edit2.type_keys("821018")
+window_jt.Edit0.type_keys("821018")
+window_jt.Edit0.type_keys("821018")
+window_jt.Edit2.set_text("821018")
+
+#寻找edit0,通过pyautogui
+window_Edit0 = window_jt.child_window(best_match='Edit0')
+window_jt.set_focus()
+button_rect = window_Edit0.rectangle()
+# 获取控件的位置
+print(button_rect)
+x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+# 移动鼠标到控件的四个角
+pyautogui.moveTo(button_rect.left, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.bottom, duration=1)
+pyautogui.moveTo(button_rect.left, button_rect.bottom, duration=1)
+pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+time.sleep(1)
+pyautogui.click()  # 执行点击操作
+# 等待 3 秒，给用户时间切换到目标输入框
+time.sleep(1)
+# 输入文本，字符之间有 0.1 秒的间隔
+pyautogui.write("821018", interval=0.1)
+#寻找edit2,通过pyautogui
+window_Edit2 = window_jt.child_window(best_match='Edit2')
+window_jt.set_focus()
+button_rect = window_Edit2.rectangle()
+# 获取控件的位置
+print(button_rect)
+x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+# 移动鼠标到控件的四个角
+pyautogui.moveTo(button_rect.left, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.bottom, duration=1)
+pyautogui.moveTo(button_rect.left, button_rect.bottom, duration=1)
+pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+time.sleep(1)
+pyautogui.click()  # 执行点击操作
+# 等待 3 秒，给用户时间切换到目标输入框
+time.sleep(1)
+# 输入文本，字符之间有 0.1 秒的间隔
+pyautogui.write("821018", interval=0.1)
+
+
+#寻找edit3,通过pyautogui
+window_Edit = window_jt.child_window(best_match='Edit')
+window_jt.set_focus()
+button_rect = window_Edit.rectangle()
+# 获取控件的位置
+print(button_rect)
+x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+# 移动鼠标到控件的四个角
+pyautogui.moveTo(button_rect.left, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.top, duration=1)
+pyautogui.moveTo(button_rect.right, button_rect.bottom, duration=1)
+pyautogui.moveTo(button_rect.left, button_rect.bottom, duration=1)
+pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+time.sleep(1)
+pyautogui.click()  # 执行点击操作
+# 等待 3 秒，给用户时间切换到目标输入框
+time.sleep(1)
+# 输入文本，字符之间有 0.1 秒的间隔
+pyautogui.write("821018", interval=0.1)
+
+# 可选：打印当前位置
+current_position = pyautogui.position()
+print(f"当前鼠标位置: {current_position}")
+
+#打印函数帮助定位
+def print_postion(window):
+    button_rect = window.rectangle()
+    # 获取控件的位置
+    print(button_rect)
+    x_center = (button_rect.left + button_rect.right) // 2  # 计算X中心
+    y_center = (button_rect.top + button_rect.bottom) // 2   # 计算Y中心
+    # 移动鼠标到控件的四个角
+    pyautogui.moveTo(button_rect.left, button_rect.top, duration=1)
+    pyautogui.moveTo(button_rect.right, button_rect.top, duration=1)
+    pyautogui.moveTo(button_rect.right, button_rect.bottom, duration=1)
+    pyautogui.moveTo(button_rect.left, button_rect.bottom, duration=1)
+    pyautogui.moveTo(x_center, y_center, duration=1)  # 1 秒移动到目标位置
+    time.sleep(1)
+    pyautogui.click()
+def print_control_info_position(control, indent=0):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    print(f"{indent_str}Control: {control}")
+    print(f"{indent_str}Class Name: {control.class_name}")
+    print(f"{indent_str}Control Type: {control.element_info.control_type}")
+    print(f"{indent_str}Name: {control.window_text()}")
+    print(f"{indent_str}Handle: {control.handle}")
+    print(f"{indent_str}Is Enabled: {control.is_enabled()}")
+    print(f"{indent_str}Is Visible: {control.is_visible()}")
+    print(f"{indent_str}Bounding Rectangle: {control.rectangle()}")
+    print(f"{indent_str}" + "-" * 40)
+    print_postion(control)
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info_position(child, indent + 1)
+window_jt.set_focus()
+print_control_info_position(window_jt)
+
+print_postion(window_Edit)
+#遍历控件同时鼠标定位
+
+#对按钮进行定位
+window_try = window_jt.child_window(handle=22613206)
+window_jt.set_focus()
+print_postion(window_try)
+
+#combobox类
+window_try = window_jt.child_window(handle=23532076)
+window_try.get_properties() # 存在
+window_try.item_count()#不存在
+window_try.dropped_rect()#不存在
+window_try.selected_text()#不存在
+
+#hwnd类
+window_try = window_jt.child_window(handle=22613206)
+window_try.client_rect()
+window_try.font()
+dir(window_try)
+window_try.print_control_identifiers()
+window_jt.print_control_identifiers()
+#Shell Embedding
+window_shell = window_jt.child_window(best_match="Shell Embedding")
+print(window_shell)
+print_control_info(window_jt)
+
+#edit 输入,尝试handle定位之后再进行操作，将遍历和展示联系在一起
+#当有输出结果时，说明执行了操作，但是没有输出结果压根就没执行操作
+#对应的是edit1
+# 报notvisible，focus只显示小的登录界面，一切也恢复了
+window_try = window_jt.child_window(handle=65409308)
+window_try.click()
+window_jt.set_focus()
+window_try.set_text("11") # 没结果
+window_try.set_edit_text("11") # 没结果 
+window_try.set_window_text("11") #报错
+window_try.type_keys("11") # 没结果但是切换了界面
+window_try.click_input() #没输出结果
+# Window Title: 中信建投网上交易卓越安全加强版V10.10 - [版面-股票买卖], Handle: 200176
+window_jy = Desktop().window(handle=200176)
+window_jy.print_control_identifiers()
+# 从button57开始吧,又有2个
+window_57 = window_jy.child_window(best_match="Button57")
+window_57.click()
+children_57 = window_jy.children(best_match="Button57")
+window_jy.set_focus()
+# 不能用for循环因为循环次数太多了
+for child in children_57:
+    print_control_info_position(child)
+#对窗口的进行分析
+#1、基于print_control_identifiers，将文件输入txt文件
+from io import StringIO
+import sys
+output = StringIO()
+original_stdout = sys.stdout
+sys.stdout = output
+window_jy.print_control_identifiers()
+sys.stdout = original_stdout
+jy_control_info = output.getvalue()
+path = r"d:\log_jy_print_control.txt"
+with open(path, "w", encoding="utf-8") as file:
+    # 将控件信息写入文件
+    file.write(jy_control_info)
+print(f"控件信息已成功存储到 {path} 文件中")
+#2、基于遍历将所有窗口信息写入txt文件
+def print_control_info_file(control, indent=0, file=None):
+    """递归打印控件及其子控件的信息"""
+    indent_str = "  " * indent
+    file.write(f"{indent_str}Handle: {control.handle}\n")
+    file.write(f"{indent_str}Control: {control}\n")
+    file.write(f"{indent_str}Class Name: {control.class_name()}\n")
+    file.write(f"{indent_str}Control Type: {control.element_info.control_type}\n")
+    file.write(f"{indent_str}Name: {control.window_text()}\n")
+    file.write(f"{indent_str}Automation ID: {control.automation_id()}\n")  # 添加打印 automation_id 的代码,但是automationid全部为空
+    file.write(f"{indent_str}Is Enabled: {control.is_enabled()}\n")
+    file.write(f"{indent_str}Is Visible: {control.is_visible()}\n")
+    file.write(f"{indent_str}Bounding Rectangle: {control.rectangle()}\n")
+    file.write(f"{indent_str}" + "-" * 40 + "\n")
+
+    # 递归遍历子控件
+    for child in control.children():
+        print_control_info_file(child, indent + 1, file)
+
+# 打开文件以写入
+path =  r"d:\log_jy_trans.txt"
+with open(path, "w", encoding="utf-8") as file:
+    # 开始遍历顶层窗口及其所有子控件
+    print_control_info_file(window_jy, file=file)
+#3 利用inspect进行模糊检索,还是说找不到
+#3.1利用automationid，但是无效
+control = window_jy.child_window(auto_id='40961')  # 例如 'Button', 'Edit' 等
+# 可以执行操作，例如点击
+window_jy.set_focus()
+control.click()
+#利用句柄
+#证券的文本部分，
+window_zq = window_jy.child_window(handle=7803754)
+window_jy.set_focus()
+print_postion(window_zq)
+#随意找个button 88608928
+window_try = window_jy.child_window(handle=88608928)
+window_jy.set_focus()
+print_postion(window_zq)
+#尝试一系列的吧
+window_try = window_jy.child_window(handle=4853950)
+window_try.rectangle()
+handles = [4065736,34082580,4853950,26216882,136252536]
+for handle in handles:
+    print(handle)
+    window_try = window_jy.child_window(handle=handle)
+    window_jy.set_focus()
+    print_postion(window_try)
+    window_zq.click()
+# 遍历获取handle值和rect值，将值存入结构化表之中
+import pandas as pd
+data = pd.DataFrame(columns=['Handle','control','Class Name','Control Type','Name','Automation ID','Is Enablede','Is Visible','Rectangle']) 
+def save_control_info_df(window_try,data):
+    """递归打印控件及其子控件的信息"""
+    
+    # 新增的行数据
+    new_row = pd.DataFrame({
+        'Handle': [window_try.handle],  # 确保这个是一个可以被识别的值
+        'control': [str(window_try)],    # 转换为字符串
+        'Class Name': [window_try.class_name()], 
+        'Control Type': [window_try.element_info.control_type],
+        'Name':[window_try.window_text()],
+        'Automation ID':[window_try.automation_id()],
+        'Is Enablede':window_try.is_enabled(),
+        'Is Visible':window_try.is_visible(),
+        'Rectangle':window_try.rectangle()
+    })
+    data = pd.concat([data, new_row], ignore_index=True)
+    for child in window_try.children():
+        data = save_control_info_df(child, data)
+    return data
+# 对句柄进行汇总
+data = save_control_info_df(window_jy, data)
+result_h = data['Handle'].value_counts()
+result_h = result_h.reset_index()  # 将 Series 转换为 DataFrame
+result_h.columns = ['句柄', '出现次数']  # 修改列名
+# 对句柄和位置进行汇总
+# 将Rectangle转化为字符串
+print(data.dtypes)  # 检查 DataFrame 的数据类型
+# 将汇总和分类的结果series转化为dataframe要加index，同时对columns命名
+result_hr = data.groupby(['Handle']).agg(出现次数=('Class Name','count')).reset_index()
+data['Rectangle'] = data['Rectangle'].astype(str)
+result_hr = data.groupby(['Handle','Rectangle']).agg(出现次数=('Class Name','count')).reset_index()
+
+# 奖结果存入excel表
+file_path = r"d:\zxjt_trade_control.xlsx"
+data.to_excel(file_path, index=False, sheet_name='Sheet1')  # 不保存行索引
+# 句柄实惠发生改变的，导致整个脚本不可靠
+# 先从88999252开始 银证转账
+window_try = window_jy.child_window(handle=88999252)
+window_jy.set_focus()
+
+print_postion(window_try)
+#4658112显示可用 库存列表中
+window_try = window_jy.child_window(handle=4658112)
+window_jy.set_focus()
+print_postion(window_try)
+#2560820 委托 即为买入
+window_try = window_jy.child_window(handle=2560820)
+window_jy.set_focus()
+print_postion(window_try)
+# 46271448 锁
+# 3084288
+# 4917832 取消联动窗口
+window_try = window_jy.child_window(handle=4917832)
+window_jy.set_focus()
+print_postion(window_try)
+# 市值25891596
+window_try = window_jy.child_window(handle=25891596)
+window_jy.set_focus()
+print_postion(window_try)
+
+#设置工具 594120 11211470 
+# 22024044 是设置栏
+window_try = window_jy.child_window(handle=22024044)
+window_jy.set_focus()
+print_postion(window_try)
+# 16716636 人民币栏
+window_try = window_jy.child_window(handle=16716636)
+window_jy.set_focus()
+print_postion(window_try)
+# 2626462 买入数量的全部
+window_try = window_jy.child_window(handle=2626462)
+window_jy.set_focus()
+print_postion(window_try)
+# 200190
+window_try = window_jy.child_window(handle=200190)
+window_jy.set_focus()
+print_postion(window_try)
+# 27529556 1/3持仓
+window_try = window_jy.child_window(handle=27529556)
+window_jy.set_focus()
+print_postion(window_try)
+# 13961208 这个是价格
+window_try = window_jy.child_window(handle=13961208)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click() 
+window_jy.set_focus()
+window_try.click()
+window_try.set_text(600)
+# 724524 都是价格但是价格不能输入，只能点击再选择
+window_try = window_jy.child_window(handle=724524)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+# 2298686 也是价格，窗口中间的位置
+# 1772406
+# 可以点击，并且可以输入，但是要注意格式
+window_try = window_jy.child_window(handle=2298686)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+pyautogui.write('5.6', interval=0.1)
+#使用pywinauto来调用,不能点击，不能输入
+window_try = window_jy.child_window(handle=1772406)
+window_jy.set_focus()
+window_try.click()
+window_try.set_text(600)
+#3082262 代码或名称
+window_try = window_jy.child_window(handle=3082262)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+pyautogui.write('600360', interval=0.1)
+# 在尝试一下pywinauto，可以输入的
+window_try = window_jy.child_window(handle=3082262)
+window_jy.set_focus()
+window_try.click()
+window_try.set_text(600)
+# 8389788 是证券代码啊，可以点击，可以输入
+window_try = window_jy.child_window(handle=8389788)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+pyautogui.write('600360', interval=0.1)
+pyautogui.press('enter')
+# 在尝试一下pywinauto，无法点击，无法输入
+window_try = window_jy.child_window(handle=8389788)
+window_jy.set_focus()
+window_try.click()
+window_try.set_text('600036')
+
+#1314828 证券上边的位置，有点高了吧
+window_try = window_jy.child_window(handle=1314828)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+#9571236
+window_try = window_jy.child_window(handle=9571236)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+#3082262 之前试用过的 变成了买入或者卖出了
+window_try = window_jy.child_window(handle=3082262)
+window_jy.set_focus()
+print_postion(window_try)
+pyautogui.click()
+
+# 提取rectangle中的框架数据
+import re
+str_1 = '(L725, T717, R872, B761)'
+numbers = re.findall(r'\d+', str_1)
+numbers = [int(num) for num in numbers]
+
+# 提取矩形的四个顶点坐标
+def extract_vertices(rectangle):
+    # 使用正则表达式提取数字
+    numbers = re.findall(r'\d+', rectangle)
+    # 将提取的字符串转换为整数
+    left = int(numbers[0])
+    top = int(numbers[1])
+    right = int(numbers[2])
+    bottom = int(numbers[3])
+    # 生成四个顶点坐标
+    return [
+        (left, top),      # 左上角
+        (right, top),     # 右上角
+        (right, bottom),  # 右下角
+        (left, bottom)    # 左下角
+    ]
+
+extract_vertices(data.loc[0,'Rectangle'])
+# 将矩形的坐标提取为顶点并展开为 DataFrame
+data['vertices'] = data['Rectangle'].apply(extract_vertices)
+# 提取所有的顶点
+all_vertices = [vertex for vertices in data['vertices'] for vertex in vertices]
+# 分离 x 和 y 坐标
+x_coords = [vertex[0] for vertex in all_vertices]
+y_coords = [vertex[1] for vertex in all_vertices]
+y_coords = [-x for x in y_coords]
+import matplotlib.pyplot as plt
+# 画出散点图
+plt.scatter(x_coords, y_coords)
+plt.title('Vertices of Rectangles')
+plt.xlabel('X Coordinate')
+plt.ylabel('Y Coordinate')
+plt.grid(True)
+# 显示图形
+plt.show()
+# 寻找左边和数量
+# 没有menu的菜单·······
+{l:-2 t:51 r:223 b:2015}
+menu_bar = window_jy.menu()
+# 遍历菜单栏的所有菜单项，遍历完毕
+for menu_item in menu_bar.items():
+    print(menu_item)
+    print("交易项文本:", menu_item.text())
+# 将dlg.print_control_identifiers()的数据结构化
+# 存储控件信息的列表
+# 存储控件信息的列表
+# 方法一，并不是太成功
+from io import StringIO
+import sys
+control_info_list = []
+
+# 创建一个 StringIO 对象，以捕获 print_control_identifiers() 的输出
+output = StringIO()
+sys.stdout = output  # 重定向标准输出到 StringIO
+
+# 调用 print_control_identifiers() 方法
+window_jy.print_control_identifiers()
+
+# 恢复标准输出
+sys.stdout = sys.__stdout__
+
+# 获取捕获的输出
+control_identifiers_output = output.getvalue()
+
+# 解析输出
+for line in control_identifiers_output.splitlines():
+    # 处理每行输出
+    if line.strip():  # 确保行非空
+        parts = line.split(' - ')
+        if len(parts) >= 3:  # 确保至少有3个部分
+            control_type = parts[0]
+            control_name = parts[1].strip('"')  # 去掉引号
+
+            # 检查 AutomationId 是否存在并提取
+            if ':' in parts[2]:
+                automation_id = parts[2].split(': ')[1].strip('"')  # 提取 AutomationId
+            else:
+                automation_id = None  # 如果没有，设置默认值
+
+            # 将控件信息存储到字典中
+            control_info = {
+                'Control Type': control_type,
+                'Control Name': control_name,
+                'Automation ID': automation_id
+            }
+            control_info_list.append(control_info)
+
+# 将控件信息转换为 DataFrame
+df = pd.DataFrame(control_info_list)
+# 打印 DataFrame
+print(df)
+
+# 方法二函数解析
+import re
+import pandas as pd
+
+# 模拟输入数据
+data = """
+TdxW_MainFrame_Class - '中信建投网上交易卓越安全加强版V10.10 - [首页]'    (L-5, T-6, R3843, B2091)
+['中信建投网上交易卓越安全加强版V10.10 - [首页]', '中信建投网上交易卓越安全加强版V10.10 - [首页]TdxW_MainFrame_Class', 'TdxW_MainFrame_Class']
+child_window(title="中信建投网上交易卓越安全加强版V10.10 - [首页]", class_name="TdxW_MainFrame_Class")
+   | 
+   | MDIClient - ''    (L224, T51, R3841, B2015)
+   | ['设置工具MDIClient', 'MDIClient']
+   | child_window(class_name="MDIClient")
+   |    | 
+   |    | Afx:00400000:b:00010003:00000006:05DD112D - '首页'    (L224, T51, R3841, B2015)
+   |    | ['Afx:00400000:b:00010003:00000006:05DD112D', '首页', '首页Afx:004000000:b:00010003:00000006:05DD112D']
+   |    | child_window(title="首页", class_name="Afx:00400000:b:00010003:00000006:05DD112D")
+   |    |    | 
+   |    |    | AfxFrameOrView100 - ''    (L221, T48, R3844, B2018)
+   |    |    | ['AfxFrameOrView100', '设置工具AfxFrameOrView100', 'AfxFrameOrView1000', 'AfxFrameOrView1001', '设置工具AfxFrameOrView1000', '设置工具AfxFrameOrView1001']
+   |    |    | child_window(class_name="AfxFrameOrView100")
+"""
+
+lines = data.strip().splitlines()
+control_data = []
+level = lines[14].count('|')
+lines[14].strip()
+filtered_lines = [line for line in lines if not all(char in ' |' for char in line.strip())]
+filtered_lines[11]
+level = filtered_lines[11].count('|')
+line = filtered_lines[11].replace('|','').strip()
+match = re.match(r'(.+?) - \'(.+?)\'\s+$(.*?)$', line)
+line = filtered_lines[0]
+start_index = line.index('(')
+end_index = line.index(')')
+# 提取括号内的内容
+coordinates = line[start_index:end_index + 1]  # 包括括号
+# 提取去掉前后空格的字符串
+remaining_part = line[:start_index].strip()  # 去掉前后的空格
+# 初始化一个空列表来存储结构化数据
+structured_data = []
+# 遍历数据列表，每三个数据作为一组
+# 尝试去掉|
+text =lines[14]
+text.strip('|').strip()
+text.replace('|','').strip()
+# 给定的字符串
+string_data = "['中信建投网上交易卓越安全加强版V10.10 - [首页]', '中信建投网上交易卓越安全加强版V10.10 - [首页]TdxW_MainFrame_Class', 'TdxW_MainFrame_Class']"
+
+# 使用 eval() 转换为列表
+data_list = eval(string_data)
+
+# 打印结果
+print(data_list)
+# 解析函数,将字符串数据转化为字典的列表
+def parse_control_data(text):
+    lines = text.strip().splitlines()
+    # 去掉数据的表头
+    lines = lines[2:]
+    lines = [line for line in lines if not all(char in ' |' for char in line.strip())]
+    control_data = []
+    for i in range(0,len(lines),3):
+        level = lines[i].count('|')  # 计算层级
+        line = lines[i].replace('|', '').strip()  # 去掉 | 符号并清理空格
+        start_index = line.rindex('(')
+        end_index = line.rindex(')')
+        # 提取括号内的内容
+        coordinates = line[start_index:end_index + 1]  # 包括括号
+        coordinates = coordinates.strip('()').split(', ')
+        coord = [int(coord[1:])  for coord in coordinates]
+        # 提取去掉前后空格的字符串
+        name = line[:start_index].strip()  # 去掉前后的空格
+        line1 = lines[i+1].replace('|','').strip()
+        nick = eval(line1)
+        line2 = lines[i+2].replace('|','').strip()
+            # 构建一个结构化的字典
+        structured_data = {
+                'Level': level,
+                'Name': name,
+                'Display Name': nick,
+                'Coordinates': coord,  # 转换为元组
+                'Child Window': line2  # 初始值
+        }
+        control_data.append(structured_data)
+
+    return control_data
+# 查找问题
+line = lines[4971].replace('|', '').strip()
+# 解析数据
+structured_controls = parse_control_data(data)
+# 创建一个 StringIO 对象，以捕获 print_control_identifiers() 的输出
+output = StringIO()
+sys.stdout = output  # 重定向标准输出到 StringIO
+
+# 调用 print_control_identifiers() 方法
+window_jy.print_control_identifiers()
+
+# 恢复标准输出
+sys.stdout = sys.__stdout__
+
+# 获取捕获的输出
+control_identifiers_output = output.getvalue()
+# list_1 = control_identifiers_output.strip().splitlines()
+# list_1 = list_1[2:]
+text = control_identifiers_output
+structured_controls = parse_control_data(control_identifiers_output)
+# 转换为 DataFrame
+df = pd.DataFrame(structured_controls)
+
+# 打印 DataFrame
+print(df)
+
+
