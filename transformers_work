@@ -1,0 +1,86 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# 定义 ChatTransformer 模型
+class ChatTransformer(nn.Module):
+    def __init__(self, input_dim, model_dim, n_heads, num_encoder_layers, num_decoder_layers):
+        super(ChatTransformer, self).__init__()
+        self.embedding = nn.Embedding(input_dim, model_dim)
+        self.transformer = nn.Transformer(d_model=model_dim, nhead=n_heads,
+                                           num_encoder_layers=num_encoder_layers,
+                                           num_decoder_layers=num_decoder_layers)
+        self.fc_out = nn.Linear(model_dim, input_dim)
+
+    def forward(self, src, tgt):
+        src = self.embedding(src)
+        tgt = self.embedding(tgt)
+        output = self.transformer(src, tgt)
+        return self.fc_out(output)
+
+# 简单的聊天记录示例（构建训练数据）
+chat_data = [
+    ("你好", "你好，有什么我可以帮助你的吗？"),
+    ("今天天气怎么样", "今天天气晴，适合出去玩。"),
+    ("你喜欢什么运动", "我喜欢篮球，你呢？"),
+    ("再见", "再见，期待下次交流！")
+]
+
+# 创建词汇和索引映射
+words = {word for dialog in chat_data for sentence in dialog for word in sentence}
+word_to_idx = {word: idx + 1 for idx, word in enumerate(words)}  # 从1开始，0保留为padding
+input_dim = len(word_to_idx) + 1  # 加上padding索引
+
+# 将聊天记录转换为索引
+def prepare_data(chat_data, word_to_idx):
+    src = []
+    tgt = []
+    for input_text, response in chat_data:
+        src.append([word_to_idx[word] for word in input_text])
+        tgt.append([word_to_idx[word] for word in response])
+    return src, tgt
+
+src_data, tgt_data = prepare_data(chat_data, word_to_idx)
+
+# 数据填充到相同长度（这里简单填充为最长句子长度）
+max_length = max(max(len(sent) for sent in src_data), max(len(sent) for sent in tgt_data))
+
+def pad_sequences(sequences, max_length):
+    padded = []
+    for seq in sequences:
+        padded.append(seq + [0] * (max_length - len(seq)))  # 用0填充
+    return padded
+
+src_padded = torch.tensor(pad_sequences(src_data, max_length), dtype=torch.long)
+tgt_padded = torch.tensor(pad_sequences(tgt_data, max_length), dtype=torch.long)
+
+# 超参数设置
+model_dim = 512
+n_heads = 8
+num_encoder_layers = 6
+num_decoder_layers = 6
+num_epochs = 100  # 训练轮数
+
+# 实例化模型
+model = ChatTransformer(input_dim, model_dim, n_heads, num_encoder_layers, num_decoder_layers)
+
+# 定义优化器和损失函数
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+criterion = nn.CrossEntropyLoss()
+
+# 训练循环
+for epoch in range(num_epochs):
+    model.train()
+    optimizer.zero_grad()
+    
+    # 转置以适应Transformer的输入格式
+    src_seq = src_padded.transpose(0, 1)  # (max_length, batch_size)
+    tgt_seq = tgt_padded.transpose(0, 1)  # (max_length, batch_size)
+    
+    output = model(src_seq, tgt_seq[:-1])  # tgt[:-1] 是为了使用当前时刻之前的目标作为输入
+    loss = criterion(output.view(-1, input_dim), tgt_seq[1:].contiguous().view(-1))  # tgt[1:] 是为了对齐损失
+    
+    loss.backward()
+    optimizer.step()
+
+    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
