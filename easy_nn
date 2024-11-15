@@ -1,0 +1,38 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Nov 14 20:15:07 2024
+
+@author: csc05176
+"""
+
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+from torch import optim
+
+class Net(nn.Module):
+    def __init__(self):
+        super(Net,self).__init__()
+        self.fc1 = nn.Linear(28*28, 256)
+        self.fc2 = nn.Linear(256,64)
+        self.fc3 = nn.Linear(64,10)
+    def forward(self,x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+        
+import numpy as np
+a = np.random.random((28,28))
+a1 = np.random.random((2,28,28))        
+a.shape 
+a = torch.tensor([a],dtype=torch.float) 
+a1 = torch.tensor([a1],dtype=torch.float) 
+print(a11.shape)      
+a = a.view(a.size(0),28*28)
+a11 = a1.view(a1.size(0),a1.size(1),28*28)
+a11 = a1.view(-1,a1.size(1),28*28)
+net = Net()
+b = net(a11)
+b.shape
+b
