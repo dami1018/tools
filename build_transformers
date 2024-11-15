@@ -1,0 +1,103 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 12 14:33:24 2024
+
+@author: csc05176
+"""
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import jieba
+
+data = [
+    ("你好", "你好！有什么我可以帮助你的？"),
+    ("今天天气怎么样？", "今天天气很好，阳光明媚。"),
+    ("你会做什么？", "我可以和你聊天，回答你的问题。")
+]
+
+# 建立词汇表
+vocab = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2}
+for pair in data:
+    for sentence in pair:
+        for word in sentence:
+            if word not in vocab:
+                vocab[word] = len(vocab)
+# print(vocab) #没有用分词但是不重复
+# 编码函数
+def encode(sentence, vocab):
+    return [vocab["<SOS>"]] + [vocab[word] for word in sentence] + [vocab["<EOS>"]]
+
+# 编码数据
+encoded_data = [(encode(pair[0], vocab), encode(pair[1], vocab)) for pair in data]
+# print(encoded_data)
+# 确保所有句子长度一致（填充或截断）
+max_len = max(max(len(pair[0]), len(pair[1])) for pair in encoded_data)
+# print(max_len)
+def pad_sequence(seq, max_len, pad_value):
+    return seq + [pad_value] * (max_len - len(seq))
+
+padded_data = [(pad_sequence(pair[0], max_len, vocab["<PAD>"]),
+                pad_sequence(pair[1], max_len, vocab["<PAD>"])) for pair in encoded_data]
+# print(padded_data)
+
+import torch
+import torch.nn as nn
+
+class SimpleTransformer(nn.Module):
+    def __init__(self, vocab_size, embedding_dim):
+        super(SimpleTransformer, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.attention = nn.MultiheadAttention(embedding_dim, num_heads=1)
+        self.fc = nn.Linear(embedding_dim, vocab_size)
+
+    def forward(self, src, tgt):
+        src = self.embedding(src).permute(1, 0, 2)
+        tgt = self.embedding(tgt).permute(1, 0, 2)
+        attn_output, _ = self.attention(tgt, src, src)
+        output = self.fc(attn_output.permute(1, 0, 2))
+        return output
+
+# 参数设置
+vocab_size = len(vocab)
+embedding_dim = 16
+
+# 初始化模型
+model = SimpleTransformer(vocab_size, embedding_dim)
+
+criterion = nn.CrossEntropyLoss(ignore_index=vocab["<PAD>"])
+optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+
+# 简单的数据生成器
+def data_generator(data, batch_size=1):
+    for src, tgt in data:
+        yield torch.tensor([src], dtype=torch.long), torch.tensor([tgt], dtype=torch.long)
+
+# 训练模型
+epochs = 1000
+for epoch in range(epochs):
+    total_loss = 0
+    for src, tgt in data_generator(padded_data):
+        optimizer.zero_grad()
+        output = model(src, tgt[:, :-1])
+        loss = criterion(output.view(-1, vocab_size), tgt[:, 1:].contiguous().view(-1))
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    print(f"Epoch {epoch + 1}, Loss: {total_loss / len(padded_data)}")
+
+def generate_reply(model, input_sentence, vocab, max_length=20):
+    model.eval()
+    input_encoded = torch.tensor([pad_sequence(encode(input_sentence, vocab), max_len, vocab["<PAD>"])], dtype=torch.long)
+    output_encoded = torch.tensor([[vocab["<SOS>"]]], dtype=torch.long)
+    for _ in range(max_length):
+        output = model(input_encoded, output_encoded)
+        next_word = torch.argmax(output[:, -1, :], dim=-1).item()
+        output_encoded = torch.cat([output_encoded, torch.tensor([[next_word]], dtype=torch.long)], dim=1)
+        if next_word == vocab["<EOS>"]:
+            break
+    return "".join([list(vocab.keys())[list(vocab.values()).index(i)] for i in output_encoded[0].numpy()[1:-1]])
+
+# 测试生成回复
+print(generate_reply(model, "今天", vocab))
+torch.save(model.state_dict(), "simple_transformer_model.pth")
