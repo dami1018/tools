@@ -1,0 +1,35 @@
+from datasets import load_dataset
+# 从huggingface直接找，复制全称是有所有者名称的
+dataset = load_dataset("Yelp/yelp_review_full")
+print(dataset['train'])
+from transformers import AutoTokenizer
+tokenizer = AutoTokenizer.from_pretrained('bert-base-cased')
+def tokenizer_function(data):
+    return tokenizer(data['text'],padding='max_length',truncation=True)
+tokenizer_dataset = dataset.map(tokenizer_function,batched=True)
+small_train_dataset = tokenizer_dataset['train'].shuffle(seed=42).select(range(1000))
+small_eval_dataset = tokenizer_dataset['test'].shuffle(seed=42).select(range(1000))
+print(small_train_dataset)
+from transformers import AutoModelForSequenceClassification
+model = AutoModelForSequenceClassification("bert-base-cased", num_labels=5)
+# https://github.com/DjangoPeng/LLM-quickstart/blob/main/docs/version_info.txt
+from transformers import TrainingArguments
+model_dir = "models/bert-base-cased"
+models_dir = r"e:\modles"
+# logging_steps 默认值微500，根据训练数据和步长，将其设置为100
+training_args = TrainingArguments(output_dir=f"{models_dir}\\test_trainer",
+                                 logging_dir=f"{models_dir}\\test_trainer\runs",
+                                 logging_steps=100)
+import numpy as np
+import evaluate
+compute_metrics = evaluate.load("accuracy")
+from transformers import Trainer
+train=Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=small_train_dataset,
+    eval_dataset=small_eval_dataset,
+    compute_metrics=compute_metrics
+)
+train.evaluate()
+train.train()
