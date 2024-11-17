@@ -1,0 +1,288 @@
+
+
+import pandas as pd
+path = r'E:\work\微信数据训练\messages_20241116.csv'
+data = pd.read_csv(path)
+data_Re = data.groupby(['NickName'])['StrContent'].count()
+data_wy = data[data['Remark']=='王艳']
+data_sxl = data[data['Remark']=='师晓蕾']
+data_wh = data[data['NickName']=='王慧']
+df = data
+# 定义要查找的字符串
+search_string = '领导让我跟你说'
+# 使用DataFrame.any()和str.contains()来筛选包含相关字符串的行
+filtered_df = df[df.apply(lambda row: row.astype(str).str.contains(search_string, na=False).any(), axis=1)]
+a = df[df['Remark'].apply(lambda x: search_string in str(x))]
+
+# huggingface上应该有很多的数据集
+# 使用datasets应该可以很方便的导入很多数据集
+from datasets import load_dataset
+# 会报不信任的错
+dataset = load_dataset("monash_tsf", "tourism_monthly")
+# 加载数据集并信任远程代码，正确的打开方式
+dataset = load_dataset('monash_tsf',  "tourism_monthly",trust_remote_code=True)
+# dataset分为三个数据集分别为train test validation
+print(dataset)
+print(dataset['train'][0].keys)
+print(dataset['train'][0:5]) 
+# 转化 dataset到dataframe
+train_df = dataset['train'].to_pandas()
+test_df = dataset['test'].to_pandas()
+validation_df = dataset['validation'].to_pandas()
+ele = train_df.loc[3,'target']
+# 转化 dataframe到dataset
+from datasets import Dataset
+new_dataset = Dataset.from_pandas(train_df)
+print(new_dataset)
+
+# tokenizer尝试
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+# 选择模型和tokenizer
+model_name = "distilbert-base-uncased"  # 可以选择适合您任务的模型
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer('你好')
+li = ['你好','特别好','非常好']
+li_t = tokenizer(li, padding='max_length', truncation=True)
+li_t_i = li_t['input_ids']
+from datasets import load_dataset
+
+# bert模型试用
+from transformers import BertModel, BertTokenizer
+import torch
+# 加载预训练模型和分词器
+model_name = "bert-base-uncased"
+tokenizer = BertTokenizer.from_pretrained(model_name)
+model = BertModel.from_pretrained(model_name)
+# 编码文本
+texts = ["I love machine learning.", "I enjoy learning about AI."]
+encoded_input = tokenizer(texts, padding=True, truncation=True, return_tensors='pt')
+print(encoded_input)
+# 获取嵌入,with必须连续执行否则with里面的变量就没有了
+with torch.no_grad():
+    outputs = model(**encoded_input)
+    embeddings = outputs.last_hidden_state.mean(dim=1)
+outputs = model(**encoded_input)
+print(outputs.last_hidden_state)
+print(outputs.last_hidden_state.shape)
+print(outputs.last_hidden_state.mean(dim=1))
+print(outputs.last_hidden_state.mean(dim=1).shape)
+# 计算相似度
+cosine_sim = torch.nn.functional.cosine_similarity(embeddings[0], embeddings[1], dim=0)
+print(f"Cosine similarity: {cosine_sim.item()}")
+# 解码中文文本,分词都会在开始和结束加入特殊字符
+texts_1 = ["我喜欢中国.", "北京是我的最爱."]
+encoded_input = tokenizer(texts_1, padding=True, truncation=True, return_tensors='pt')
+print(encoded_input)
+print(encoded_input['input_ids'])
+outputs = model(**encoded_input)
+print(outputs.last_hidden_state)
+print(outputs.last_hidden_state.shape)
+print(outputs.last_hidden_state.mean(dim=1))
+print(outputs.last_hidden_state.mean(dim=1).shape)
+with torch.no_grad():
+    outputs = model(**encoded_input)
+    embeddings = outputs.last_hidden_state.mean(dim=1)
+
+# 计算相似度
+cosine_sim = torch.nn.functional.cosine_similarity(embeddings[0], embeddings[1], dim=0)
+print(f"Cosine similarity: {cosine_sim.item()}")
+
+
+
+
+# bert模型的运行hfl/rbt3 是中文的分词器
+from transformers import AutoTokenizer
+# 加载中文的预训练模型tokenizer
+tokenizer = AutoTokenizer.from_pretrained('hfl/rbt3')
+# 试编码句子
+tokenizer.batch_encode_plus(
+    ['明月装饰了你的窗子', '你装饰了别人的梦'],
+    truncation=True,)
+'''
+# 从本地加载数据集
+from datasets import load_from_disk
+# 加载预先下载好的数据集
+dataset = load_from_disk('/content/drive/MyDrive/Colab Notebooks/NLP/Huggingface_Book/data/ChnSentiCorp')
+'''
+from datasets import load_dataset
+dataset = load_dataset("ndiy/ChnSentiCorp")
+print(dataset)
+# print(dataset['text'])
+# tokenizer.batch_encode_plus(dataset['text'], truncation=True)
+## 缩小数据规模，便于测试
+dataset['train'] = dataset['train'].shuffle().select(range(2000))
+dataset['test'] = dataset['test'].shuffle().select(range(100))
+
+## 编码
+def f(data):
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained('hfl/rbt3')
+    return tokenizer.batch_encode_plus(data['text'], truncation=True)
+
+# 对数据集进行编码处理
+dataset = dataset.map(f,
+                      batched=True,
+                      batch_size=1000,
+                      num_proc=4,
+                      remove_columns=['text'])
+# print(dataset['train'][3]['input_ids'])
+## 移除太长的句子
+def f(data):
+    return [len(i) <= 512 for i in data['input_ids']]
+
+# 过滤掉超过512个token的句子
+dataset = dataset.filter(f, batched=True, batch_size=1000, num_proc=4)
+
+## 加载模型
+from transformers import AutoModelForSequenceClassification
+
+# 加载用于分类任务的预训练模型
+model = AutoModelForSequenceClassification.from_pretrained('hfl/rbt3',
+                                                           num_labels=2)
+
+# 统计模型参数量
+sum([i.nelement() for i in model.parameters()]) / 10000
+
+# 第6章/模型试算
+import torch
+
+# 模拟一批数据
+data = {
+    'input_ids': torch.ones(4, 10, dtype=torch.long),
+    'token_type_ids': torch.ones(4, 10, dtype=torch.long),
+    'attention_mask': torch.ones(4, 10, dtype=torch.long),
+    'labels': torch.ones(4, dtype=torch.long)
+}
+
+# 模型试算
+out = model(**data)
+
+print(out)
+# 第6章/定义评价函数
+import numpy as np
+from transformers.trainer_utils import EvalPrediction
+
+# 定义计算指标的函数
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    logits = logits.argmax(axis=1)
+    return {'accuracy': (logits == labels).sum() / len(labels)}
+
+# 模拟输出
+eval_pred = EvalPrediction(
+    predictions=np.array([[0, 1], [2, 3], [4, 5], [6, 7]]),
+    label_ids=np.array([1, 1, 0, 1]),
+)
+
+compute_metrics(eval_pred)
+
+# 第6章/定义训练参数
+from transformers import TrainingArguments
+
+# 定义训练参数
+args = TrainingArguments(
+    # 定义临时数据保存路径
+    output_dir='/content/output_dir',
+
+    # 定义测试执行的策略，可取值no、epoch、steps
+    evaluation_strategy='steps',
+
+    # 定义每隔多少个step执行一次测试
+    eval_steps=30,
+
+    # 定义模型保存策略，可取值no、epoch、steps
+    save_strategy='steps',
+
+    # 定义每隔多少个step保存一次
+    save_steps=30,
+
+    # 定义共训练几个轮次
+    num_train_epochs=1,
+
+    # 定义学习率
+    learning_rate=1e-4,
+
+    # 加入参数权重衰减，防止过拟合
+    weight_decay=1e-2,
+
+    # 定义测试和训练时的批次大小
+    per_device_eval_batch_size=16,
+    per_device_train_batch_size=16,
+
+    # 定义是否要使用gpu训练
+    no_cuda=False,
+)
+
+# 第6章/定义训练器
+from transformers import Trainer
+from transformers.data.data_collator import DataCollatorWithPadding
+
+# 定义训练器
+trainer = Trainer(
+    model=model,
+    args=args,
+    train_dataset=dataset['train'],
+    eval_dataset=dataset['test'],
+    compute_metrics=compute_metrics,
+    data_collator=DataCollatorWithPadding(tokenizer),
+)
+
+# 第6章/测试数据整理函数
+data_collator = DataCollatorWithPadding(tokenizer)
+
+# 获取一批数据
+data = dataset['train'][:5]
+
+# 输出这些句子的长度
+for i in data['input_ids']:
+    print(len(i))
+
+# 调用数据整理函数
+data = data_collator(data)
+
+# 查看整理后的数据
+for k, v in data.items():
+    print(k, v.shape)
+
+# 解码第一个句子
+tokenizer.decode(data['input_ids'][0])
+
+# 第6章/评价模型
+trainer.evaluate()
+
+# 第6章/训练
+trainer.train()
+
+## 手动保存模型参数。使用新方法，保存为 safetensors 文件，而不是 bin 文件
+trainer.save_model(output_dir='./output_dir1/')
+#Saving model checkpoint to output_dir/
+#Configuration saved in output_dir/config.json
+#Model weights saved in output_dir/model.safetensors
+import os
+print(os.getcwd())
+## 载入已保存的模型
+from safetensors import safe_open
+from transformers import AutoModelForSequenceClassification
+
+# 加载保存的模型
+model = AutoModelForSequenceClassification.from_pretrained(
+    './output_dir1/')
+model.to('cuda')
+data.to('cuda')
+# 第6章/测试
+model.eval() ## 启用评估模式
+
+## 获取第一个批次的数据，对模型进行快速验证
+for i, data in enumerate(trainer.get_eval_dataloader()): 
+    break
+
+# 模型推理
+out = model(**data)
+out = out['logits'].argmax(dim=1)
+
+# 打印预测结果
+for i in range(16): #第一个批次共16个数据
+    print(tokenizer.decode(data['input_ids'][i], skip_special_tokens=True))
+    print('label=', data['labels'][i].item())
+    print('predict=', out[i].item())
+
