@@ -1,0 +1,66 @@
+
+from transformers import AutoTokenizer
+from datasets import load_dataset
+from transformers import AutoModelForSequenceClassification
+import torch
+# 加载中文的预训练模型tokenizer
+tokenizer = AutoTokenizer.from_pretrained('hfl/rbt3')
+# 加载数据，处理数据
+dataset = load_dataset("ndiy/ChnSentiCorp")
+# 先shuffle必须dataset改变，先map可以改变变量
+'''
+dataset['train'] = dataset['train'].shuffle().select(range(2000))
+dataset['test'] = dataset['test'].shuffle().select(range(100))
+'''
+# 直接用分词处理有问题，需要再加载模型
+# 处理报错，text报错，可能原因是不同的模型，bert-base-cased可以，但是hfl/rbt3不行，也可能是dataset的问题
+# 不是不同的模型而是map调用时参数过多只有batched参数就没问题
+def f(data):
+    # from transformers import AutoTokenizer
+    # tokenizer = AutoTokenizer.from_pretrained('hfl/rbt3')
+    # return tokenizer.batch_encode_plus(data['text'], truncation=True)
+    return tokenizer(data['text'], padding='max_length',truncation=True) 
+'''
+def tokenizer_function(data):
+    return tokenizer(data['text'],padding='max_length',truncation=True)
+tokenizer_dataset = dataset.map(tokenizer_function,batched=True,remove_columns=['text'])
+'''
+tokenizer_dataset = dataset.map(f,
+                      batched=True,remove_columns=['text']) 
+'''
+                      ,
+                      batch_size=1000,
+                      num_proc=4,
+                      remove_columns=['text'])
+'''
+small_train = tokenizer_dataset['train'].shuffle().select(range(2000))
+small_test = tokenizer_dataset['test'].shuffle().select(range(100))
+# 看似结果返回列表实际返回的是dataset类型
+def ff(data):
+    return [len(i) <= 512 for i in data['input_ids']]
+# 过滤掉超过512个token的句子
+small_train = small_train.filter(ff, batched=True, batch_size=1000, num_proc=4)
+# 加载用于分类任务的预训练模型
+model = AutoModelForSequenceClassification.from_pretrained('hfl/rbt3',
+                                                           num_labels=2)
+# sum([i.nelement() for i in model.parameters()]) / 10000
+# 第6章/模型试算
+# import torch
+# 模拟一批数据
+'''
+data = {
+    'input_ids': torch.ones(4, 10, dtype=torch.long),
+    'token_type_ids': torch.ones(4, 10, dtype=torch.long),
+    'attention_mask': torch.ones(4, 10, dtype=torch.long),
+    'labels': torch.ones(4, dtype=torch.long)
+}
+out = model(**data)
+print(out)
+# 统计模型参数量
+sum([i.nelement() for i in model.parameters()]) / 10000
+'''
+
+print(tokenizer_dataset)
+print(tokenizer)
+print(dataset)
+print(small_train)
