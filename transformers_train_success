@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov 18 21:59:41 2024
+
+@author: qinpeng
+"""
+
 
 from transformers import AutoTokenizer
 from datasets import load_dataset
@@ -47,6 +55,7 @@ model = AutoModelForSequenceClassification.from_pretrained('hfl/rbt3',
 # 第6章/模型试算
 # import torch
 # 模拟一批数据
+# 可以看出来，分类模型需要以torch即pt作为输入，输出为torch同时还输出loss函数
 '''
 data = {
     'input_ids': torch.ones(4, 10, dtype=torch.long),
@@ -59,6 +68,88 @@ print(out)
 # 统计模型参数量
 sum([i.nelement() for i in model.parameters()]) / 10000
 '''
+# 计算预测正确的函数
+
+import numpy as np
+from transformers.trainer_utils import EvalPrediction
+# 定义计算指标的函数
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    logits = logits.argmax(axis=1)
+    return {'accuracy': (logits == labels).sum() / len(labels)}
+# 模拟输出
+eval_pred = EvalPrediction(
+    predictions=np.array([[0, 1], [2, 3], [4, 5], [6, 7]]),
+    label_ids=np.array([1, 1, 0, 1]),
+)
+compute_metrics(eval_pred)
+
+import os
+os.getcwd()
+# 第6章/定义训练参数
+# mac会限制一些路径的读写权限 system 用户
+from transformers import TrainingArguments
+# 定义训练参数
+args = TrainingArguments(
+    # 定义临时数据保存路径
+    output_dir='/Library/train',
+    # 定义测试执行的策略，可取值no、epoch、steps
+    evaluation_strategy='steps',
+    # 定义每隔多少个step执行一次测试
+    eval_steps=30,
+    # 定义模型保存策略，可取值no、epoch、steps
+    save_strategy='steps',
+    # 定义每隔多少个step保存一次
+    save_steps=30,
+    # 定义共训练几个轮次
+    num_train_epochs=1,
+    # 定义学习率
+    learning_rate=1e-4,
+    # 加入参数权重衰减，防止过拟合
+    weight_decay=1e-2,
+    # 定义测试和训练时的批次大小
+    per_device_eval_batch_size=16,
+    per_device_train_batch_size=16,
+    # 定义是否要使用gpu训练
+    no_cuda=True,
+)
+
+
+# /Library /Library/train
+from transformers import Trainer
+from transformers.data.data_collator import DataCollatorWithPadding
+
+# 定义训练器
+trainer = Trainer(
+    model=model,
+    args=args,
+    train_dataset=small_train,
+    eval_dataset=small_test,
+    compute_metrics=compute_metrics,
+    data_collator=DataCollatorWithPadding(tokenizer),
+)
+# 第6章/测试数据整理函数
+data_collator = DataCollatorWithPadding(tokenizer)
+# 获取一批数据
+data = small_train[:5]
+# 输出这些句子的长度
+for i in data['input_ids']:
+    print(len(i))
+# 调用数据整理函数
+data = data_collator(data)
+
+# 查看整理后的数据
+for k, v in data.items():
+    print(k, v.shape)
+# 解码第一个句子
+tokenizer.decode(data['input_ids'][0])
+# 第6章/评价模型
+trainer.evaluate()
+# 第6章/训练
+trainer.train()
+
+
+
 
 print(tokenizer_dataset)
 print(tokenizer)
