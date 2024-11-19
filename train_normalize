@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 19 12:59:26 2024
+
+@author: qinpeng
+"""
+# 涉及的内容，获得数据的格式，分词输入的数据格式，分词输出的数据格式，模型输入的数据格式，模型输出的数据格式，计算损失函数的数据格式
+# 首先是数据的导入格式
+# 通过transformers的datasets库可以导入很多数据，并且有成熟的处理方法
+# 函数定义，导入并处理
+
+import torch
+from datasets import load_dataset
+import random
+# 定义数据集，数据都已经根据目标处理好了，返回的是列表
+class Dataset(torch.utils.data.Dataset):
+    def __init__(self, split):
+        dataset = load_dataset(path='lansinuote/ChnSentiCorp', split=split)
+
+        def f(data):
+            return len(data['text']) > 40
+
+        self.dataset = dataset.filter(f)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, i):
+        text = self.dataset[i]['text']
+
+        #切分一句话为前半句和后半句
+        sentence1 = text[:20]
+        sentence2 = text[20:40]
+        label = 0
+
+        #有一半的概率把后半句替换为一句无关的话
+        if random.randint(0, 1) == 0:
+            j = random.randint(0, len(self.dataset) - 1)
+            sentence2 = self.dataset[j]['text'][20:40]
+            label = 1
+
+        return sentence1, sentence2, label
+data = Dataset('train')
+# 使用[]的引用方法
+print(data[3])
+# 不能使用（）的引用方法
+# print(data(3))
+# datasets的导入 load,导出的是字典,一般包括train test validation 数据的字段是text和label
+# 最终的数据是字符串
+dataset_org = load_dataset(path='lansinuote/ChnSentiCorp')
+print(dataset_org)
+# dataset
+print(dataset_org['train'])
+# 字典
+print(dataset_org['train'][6])
+# 字符串
+print(dataset_org['train'][6]['text'])
+
+# 分词
+# 分词器不仅仅分词转化为ids，还会填充，截断等
+# 不同分词器返回的可能不太一样但是在transformers架构之下，分词器返回，input_ids，token_type_ids,attention_mask
+from transformers import BertTokenizer
+#加载字典和分词工具
+token = BertTokenizer.from_pretrained('bert-base-chinese')
+def collate_fn(data):
+    sents = [i[:2] for i in data]
+    labels = [i[2] for i in data]
+
+    #编码
+    data = token.batch_encode_plus(batch_text_or_text_pairs=sents,
+                                   truncation=True,
+                                   padding='max_length',
+                                   max_length=45,
+                                   return_tensors='pt',
+                                   return_length=True,
+                                   add_special_tokens=True)
+
+    #input_ids:编码之后的数字
+    #attention_mask:是补零的位置是0,其他位置是1
+    #token_type_ids:第一个句子和特殊符号的位置是0,第二个句子的位置是1
+    input_ids = data['input_ids']
+    attention_mask = data['attention_mask']
+    token_type_ids = data['token_type_ids']
+    labels = torch.LongTensor(labels)
+
+    #print(data['length'], data['length'].max())
+
+    return input_ids, attention_mask, token_type_ids, labels
+# 数据加载器是分段的，对数据进行进一步处理并且将数据分成batch
+# loader是对数据做拆分，拆分的时候是列表加数组类型的，每个数据点事pt的
+loader = torch.utils.data.DataLoader(dataset=dataset_org['train'],
+                                     batch_size=8,
+                                     collate_fn=collate_fn,
+                                     shuffle=True,
+                                     drop_last=True)
+# 一步步处理数据不适用函数,是字典，不支持以下的引用方式
+for i in dataset_org['train']:
+    print(i)
+# 不支持这种表达方式
+# 差别在于函数中的dataset是处理过的，规定了特别的引用方式，引用之后都是数组类型的
+# sents = [i[1] for i in dataset_org['train']]
+# 通过实例化的data是可以实现的，返回的是一个token的字典
+sents = [data[0][:2],data[1][:2]]
+data_s = token.batch_encode_plus(batch_text_or_text_pairs=sents,
+                               truncation=True,
+                               padding='max_length',
+                               max_length=45,
+                               return_tensors='pt',
+                               return_length=True,
+                               add_special_tokens=True)
+# 从一个8元素组中，分别提取，最终是一个tensor，8*
+for i, (input_ids, attention_mask, token_type_ids,
+        labels) in enumerate(loader):
+    break
+
+decoder操作输入
