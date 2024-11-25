@@ -1,0 +1,68 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Nov 24 12:53:09 2024
+
+@author: 1
+"""
+
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+from torch import optim
+# 模型定义，三个线性层，其中有两个是有relu层的
+class Net(nn.Module):
+    def __init__(self):
+        super(Net,self).__init__()
+        self.fc1 = nn.Linear(28*28, 256)
+        self.fc2 = nn.Linear(256,64)
+        self.fc3 = nn.Linear(64,10)
+    def forward(self,x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+# 1、模型推理
+# 要保证，输入的维度与模型定义相符合
+import numpy as np
+data = np.random.random((2,28,28))
+# 转化为tensor
+data_pt = torch.tensor(data,dtype=torch.float)
+# 改变形状
+data_pt = data_pt.view(-1,28*28)
+# 模型初始化
+net = Net()
+# 推理
+out = net(data_pt)
+print(out.shape)
+
+# 2、模型训练
+epochs = 10
+net.train()
+optimizer = optim.Adam(net.parameters(),lr=0.001)
+# 分类问题选择交叉熵作为损失函数
+criterion = nn.CrossEntropyLoss()
+# 回归问题选择均方误差
+mse_criterion = nn.MSELoss()
+# 生成数据
+from torch.utils.data import DataLoader,TensorDataset
+input_np = np.random.random((200,28*28))
+output_np = np.random.random((200,10))
+input_pt = torch.tensor(input_np,dtype=torch.float)
+output_pt = torch.tensor(output_np,dtype=torch.float)
+data = TensorDataset(input_pt,output_pt)
+data_loader = DataLoader(dataset=data,batch_size=20,shuffle=True)
+for epoch in range(epochs):
+    num = 0
+    for series,label in data_loader:
+        output = net(series)
+        loss = mse_criterion(output,label)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if num % 5 ==0:
+            print('epoch:',epoch,'num:',num,'loss:',loss)
+        num += 1
+
+    
+
+
