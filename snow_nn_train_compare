@@ -1,0 +1,90 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Nov 22 08:16:07 2024
+
+@author: csc05176
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 26 20:44:41 2024
+
+@author: 1
+"""
+
+import numpy as np
+import torch 
+from torch.utils.data import DataLoader,TensorDataset 
+from torch.nn import functional as F
+from torch import optim 
+from torch import nn
+s0 = 1
+mu =0.03
+sigma = 0.2
+dt = 1/252
+s = np.zeros((500,1000))
+s[0,:] = 1
+for i in range(1000):
+    for j in range(500):
+        if j>0:
+            s[j,i] = s[j-1,i]*np.exp((mu-sigma**2)*dt+np.sqrt(dt)*sigma*np.random.normal(0,1))
+
+ss = s.T
+s_in = ss[:,0:450]
+s_out = ss[:,450:]
+s_in_pt = torch.tensor(s_in,dtype=torch.float)
+s_out_pt = torch.tensor(s_out,dtype=torch.float)
+data = TensorDataset(s_in_pt,s_out_pt)
+loader = DataLoader(data,batch_size=32,shuffle=True)
+
+class snow(nn.Module):
+    def __init__(self):
+        super(snow,self).__init__()
+        self.fc1 = nn.Linear(450, 200) 
+        self.fc2 = nn.Linear(200,50)
+    def forward(self,x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+        
+sn = snow()
+optimizer = optim.Adam(sn.parameters(),lr=0.001)
+criterion = nn.MSELoss()
+sn.train()
+epochs = 10
+for epoch in range(epochs):
+    num = 0
+    for series,label in loader:
+        optimizer.zero_grad()
+        output = sn(series)
+        loss = criterion(output,label)
+        loss.backward()
+        optimizer.step()
+        if num % 5 ==0:
+            print('epoch:',epoch,'num:',num,'loss:',loss)
+        num += 1
+        
+        
+# sn(s_in_pt[213,:450])       
+# s_mout = s_out_pt.numpy()
+s_mout = sn(s_in_pt)
+s_mout = s_mout.detach().numpy()
+s_seq = np.concatenate((s_in,s_mout),axis=1)
+s_seq.shape
+import matplotlib.pyplot as plt
+plt.figure()
+for i in range(s_seq.shape[1]):
+    plt.plot(s_seq[i],alpha=0.1)
+plt.show()
+
+
+plt.figure()
+for i in range(20):
+    plt.plot(s_seq[i],alpha=0.1)
+plt.show()
+
+plt.figure()
+for i in range(20):
+    plt.plot(ss[i],alpha=0.1)
+plt.show()
+    
