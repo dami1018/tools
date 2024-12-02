@@ -83,6 +83,13 @@ for i in range(20):
     plt.plot(s_seq[i],alpha=0.1)
 plt.show()
 
+# 计算期望和方差
+for i in s_mout:
+    print(np.var(i),np.mean(i))
+
+for i in s_out:
+    print(np.var(i),np.mean(i))
+    
 plt.figure()
 for i in range(20):
     plt.plot(ss[i],alpha=0.1)
