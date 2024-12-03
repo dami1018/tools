@@ -1,0 +1,318 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Dec  2 18:56:11 2024
+
+@author: 1
+"""
+
+
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Nov 22 08:16:07 2024
+
+@author: csc05176
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Nov 26 20:44:41 2024
+
+@author: 1
+"""
+# 生成随机数据
+import numpy as np
+import random
+import torch 
+from torch.utils.data import DataLoader,TensorDataset 
+from torch.nn import functional as F
+from torch import optim 
+from torch import nn
+s0 = 1
+mu =0.03
+sigma = 0.2
+dt = 1/252
+s = np.zeros((500,1000))
+s[0,:] = 1
+for i in range(1000):
+    for j in range(500):
+        if j>0:
+            s[j,i] = s[j-1,i]*np.exp((mu-sigma**2)*dt+np.sqrt(dt)*sigma*np.random.normal(0,1))
+ss = s.T
+# 1、通过fc模型对股价进行预测
+# 生成batch数据
+
+s_in = ss[:,0:450]
+s_out = ss[:,450:]
+s_in_pt = torch.tensor(s_in,dtype=torch.float)
+s_out_pt = torch.tensor(s_out,dtype=torch.float)
+data = TensorDataset(s_in_pt,s_out_pt)
+loader = DataLoader(data,batch_size=32,shuffle=True)
+# 确定fc模型
+class snow(nn.Module):
+    def __init__(self):
+        super(snow,self).__init__()
+        self.fc1 = nn.Linear(450, 200) 
+        self.fc2 = nn.Linear(200,50)
+    def forward(self,x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+# 模型训练        
+sn = snow()
+optimizer = optim.Adam(sn.parameters(),lr=0.001)
+criterion = nn.MSELoss()
+sn.train()
+epochs = 10
+for epoch in range(epochs):
+    num = 0
+    for series,label in loader:
+        optimizer.zero_grad()
+        output = sn(series)
+        loss = criterion(output,label)
+        loss.backward()
+        optimizer.step()
+        if num % 5 ==0:
+            print('epoch:',epoch,'num:',num,'loss:',loss)
+        num += 1
+        
+        
+# sn(s_in_pt[213,:450])       
+# s_mout = s_out_pt.numpy()
+# 模型啤评估
+s_mout = sn(s_in_pt)
+s_mout = s_mout.detach().numpy()
+s_seq = np.concatenate((s_in,s_mout),axis=1)
+s_seq.shape
+import matplotlib.pyplot as plt
+plt.figure()
+for i in range(s_seq.shape[1]):
+    plt.plot(s_seq[i],alpha=0.1)
+plt.show()
+
+
+plt.figure()
+for i in range(20):
+    plt.plot(s_seq[i],alpha=0.1)
+plt.show()
+
+# 计算期望和方差
+for i in s_mout:
+    print(np.var(i),np.mean(i))
+
+for i in s_out:
+    print(np.var(i),np.mean(i))
+    
+plt.figure()
+for i in range(20):
+    plt.plot(ss[i],alpha=0.1)
+plt.show()
+    
+# 2、通过lstm模型来预测
+# 生成batch数据
+
+# train_x = torch.tensor(range(max_steps))
+def load_time_seq(num_steps, batch_size, train_steps,  max_steps,  use_random_iter=True):
+    seq_indices = list(range(train_steps,max_steps-1-num_steps,num_steps))
+    col_indices = list(range(max_cols))
+    if use_random_iter==True:
+        random.shuffle(seq_indices)
+        random.shuffle(col_indices)
+    def data_x(pos):
+        # train_y 不是 torch
+        # a = [train_y[pos + i - train_steps: pos + i] for i in range(1,num_steps+1)]
+        # torch.tensor(a).shape
+        # 当train_y是torch
+        # pos = indices[3]
+        # ss[pos[0]].shape
+        train_y = torch.tensor(ss[pos[0]])
+        return torch.stack([train_y[pos[1] + i - train_steps: pos[1] + i] for i in range(1,num_steps+1)],dim=0)
+    def data_y(pos):
+        # train_y.shape
+        train_y = torch.tensor(ss[pos[0]])
+        # train_y[pos[1]+1 : pos[1]+num_steps+1]
+        return torch.stack([train_y[pos[1] + i] for i in range(1,num_steps+1)],dim=0)
+    def combined(arr1,arr2):
+        result = []
+        for i in arr1:
+            for j in arr2:
+                result.append((i,j))
+        return(result)
+    full_indices = combined(col_indices,seq_indices)
+    if use_random_iter==True:
+        random.shuffle(full_indices)
+    # batch = 1
+    # indices
+    for batch in range(len(full_indices)//batch_size):
+        indices = full_indices[batch*batch_size:(batch+1)*batch_size]
+        train_iter_x = torch.stack([data_x(pos) for pos in indices],dim=0)
+        train_iter_y = torch.stack([data_y(pos) for pos in indices],dim=0)
+        yield train_iter_x, train_iter_y
+
+from model.my_tools import *
+import torch.nn as nn
+import torch
+from tqdm import tqdm
+
+'''
+import os
+os.getcwd()
+import sys
+sys.path.append(r'E:\work\股价预测\长短记忆神经网络(1)\长短记忆神经网络')
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+'''
+
+def train_time_seq(time_seq_loader, net, state, criterion, optimizer, device, use_random_iter=True):
+    total_loss = []
+    # i,(x,y) = next(enumerate(time_seq_loader))
+    for x, y in time_seq_loader:
+        if use_random_iter:
+            if isinstance(state, tuple):
+                state = tuple(torch.zeros_like(item) for item in state)
+            else:
+                state = torch.zeros_like(state, device=device)
+        x, y = x.float().to(device).permute(1, 0, 2), y.flatten().float().to(device).reshape(-1, 1)
+        y_hat, state = net(x, state)
+        # loss = torch.sum(criterion(y_hat, y) * torch.cat([net.loss_scale for _ in range(time_seq_loader.batch_size)], dim=0).to(device))
+        # loss = torch.sum(criterion(y_hat, y) * torch.cat([net.loss_scale for _ in range(batch_size)], dim=0).to(device))
+        # 损失函数修改了一下
+        loss = torch.sum(criterion(y_hat, y).to(device))
+        # loss += criterion(y_hat, y).sum()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss.append(loss)
+    return sum(total_loss) / len(total_loss)
+# 调用官方API的RNN
+
+
+# 时序预测
+class MyNet(nn.Module):
+    def __init__(self, input_size, hidden_size, linear_size, output_size, num_steps):
+        super().__init__()
+
+        self.rnn = nn.LSTM(input_size, hidden_size)
+        self.linear = nn.Sequential(
+            nn.Linear(hidden_size, linear_size), nn.ReLU(),
+            nn.Linear(linear_size, output_size)
+        )
+
+        self.hidden_size = hidden_size
+
+        self.loss_scale = nn.Parameter(torch.arange(1, num_steps+1).reshape(-1, 1).float())
+
+    def forward(self, x, state):
+        y_hat, new_state = self.rnn(x, state)
+        # y_hat.shape -> (num_steps, batch_size, hidden_size)
+        y_hat = y_hat.permute(1, 0, 2).reshape((-1, y_hat.shape[-1]))
+        y_hat = self.linear(y_hat)
+        if isinstance(new_state, tuple):
+            new_state = tuple(item.detach() for item in new_state)
+        else:
+            new_state = new_state.detach()
+        return y_hat, new_state
+epochs = 100
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+num_steps = 50
+train_steps = 40
+batch_size =32
+max_steps = 500
+max_cols = 1000
+use_random_iter = True
+input_size = 40
+hidden_size = 32
+output_size = 1
+linear_size = 16
+# time_seq_loader = TimeSeqDataLoader(num_steps, batch_size, input_size, max_steps=20000)
+time_seq_loader = load_time_data(num_steps, batch_size, train_steps,  max_steps,  use_random_iter=True)
+'''
+i,(x,y) = next(enumerate(time_seq_loader))
+i
+x.shape
+y.shape
+'''
+net = MyNet(input_size, hidden_size, linear_size, output_size, num_steps).to(device)
+
+criterion = nn.MSELoss(reduction="none")
+optimizer = torch.optim.Adam(net.parameters())
+start_state = init_state(batch_size, hidden_size, device=device, type="lstm")
+
+training = True
+if training:
+    loss_list = []
+    tqdm_iter = tqdm(range(epochs))
+    for epoch in tqdm_iter:
+        time_seq_loader = load_time_data(num_steps, batch_size, train_steps,  max_steps,  use_random_iter=True)
+        train_loss = train_time_seq(time_seq_loader, net, start_state, criterion, optimizer, device).cpu().item()
+        loss_list.append(train_loss)
+        tqdm_iter.set_postfix(train_loss=f"{train_loss}")
+
+'''        
+data = load_time_data(num_steps, batch_size, train_steps,  max_steps,  use_random_iter=True)
+i,(x,y) = next(enumerate(data))
+i
+x.shape
+y.shape
+# len(full_indices)    
+pos = 140
+train_y = torch.tensor(ss[0])
+train_y.shape
+'''
+# 准备做推理了
+# 1
+data = ss[3]
+pre = []
+for begin in range(train_steps,max_steps-num_steps):
+    temp = torch.tensor([data[i-train_steps :i] for i in range(begin,begin + num_steps)])
+    pre.append(temp)
+input_data = torch.stack(pre,dim=0)
+input_state = init_state(max_steps-num_steps-train_steps, hidden_size, device=device, type="lstm")
+if use_random_iter:
+    if isinstance(input_state, tuple):
+        input_state = tuple(torch.zeros_like(item) for item in input_state)
+    else:
+        input_state = torch.zeros_like(input_state, device=device)
+# input_state[1].dtype
+# input_data.dtype
+input_data = input_data.to(dtype=torch.float32)
+input_data = input_data.float().to(device).permute(1, 0, 2)
+output_data,output_state = net(input_data,input_state)
+output_data = output_data.cpu()
+output_data = output_data.detach().numpy()
+output_data = output_data.reshape(-1,50)
+out = output_data[:,49]
+
+out_1 = np.concatenate((data[0:90],out))
+out_1 = out_1.reshape(-1,1)
+data = data.reshape(-1,1)
+out_2 = np.concatenate((out_1,data),axis=1)
+plt.figure()
+plt.plot(data,alpha=0.5)
+plt.plot(out_1,alpha=0.5)
+plt.show()
+# output_data.shape 
+# out = [output_data[num,0] for num in range(num_steps-1,len(output_data),num_steps)]
+# len(out)
+# out[1]
+
+# 2
+data = torch.tensor(ss[3])
+for step in range(max_steps-num_steps-train_steps):
+    sta = torch.stack([data[i-train_steps:i] for i in range(train_steps+step,train_steps+num_steps+step)])
+    sta = sta.unsqueeze(0)
+    sta = sta.to(dtype=torch.float32)
+    sta = sta.float().to(device).permute(1, 0, 2)
+    input_sta = init_state(1, hidden_size, device=device, type="lstm")
+    if use_random_iter:
+        if isinstance(input_sta, tuple):
+            input_sta = tuple(torch.zeros_like(item) for item in input_sta)
+        else:
+            input_sta = torch.zeros_like(input_sta, device=device)
+    out_data,out_state = net(sta,input_sta)
+    data[num_steps+train_steps+step] = out_data[num_steps-1]
+data_1 = data.cpu().detach().numpy()
+plt.figure()
+plt.plot(data_1,alpha=0.5)
+plt.plot(ss[3],alpha=0.5)
+plt.show()
