@@ -1,0 +1,180 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec  4 08:11:32 2024
+
+@author: csc05176
+"""
+
+import numpy as np
+import torch 
+from torch.utils.data import DataLoader,TensorDataset 
+from torch.nn import functional as F
+from torch import optim 
+from torch import nn
+import random
+from tqdm import tqdm
+# 1、模拟数据生成
+# 1、1 预测时间序列生成
+s0 = 1
+mu =0.03
+sigma = 0.2
+dt = 1/252
+s = np.zeros((500,1000))
+s[0,:] = 1
+for i in range(1000):
+    for j in range(500):
+        if j>0:
+            s[j,i] = s[j-1,i]*np.exp((mu-sigma**2)*dt+np.sqrt(dt)*sigma*np.random.normal(0,1))
+# 1、2生成训练数据
+epochs = 100
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+num_steps = 50
+train_steps = 40
+batch_size =32
+max_steps = 500
+max_cols = 1000
+use_random_iter = True
+input_size = 40
+hidden_size = 32
+output_size = 1
+linear_size = 16
+ss = s.T
+sequence_indices = []
+for i in range(train_steps,max_steps-num_steps,num_steps):
+    for j in range(1000):
+        sequence_indices.append((j,i))
+random.shuffle(sequence_indices)
+data_x = []
+data_y = []
+for pos in sequence_indices:
+    line = ss[pos[0],:]
+    point_x = [line[i-train_steps:i] for i in range(pos[1],pos[1]+num_steps)]
+    point_y = [line[i] for i in range(pos[1],pos[1]+num_steps)]
+    data_x.append(point_x)
+    data_y.append(point_y)
+
+data_x = torch.tensor(data_x,dtype=torch.float32)
+data_y = torch.tensor(data_y,dtype=torch.float32)
+
+# 2、数据分块
+data = TensorDataset(data_x,data_y)
+loader = DataLoader(data,batch_size=32,shuffle=True)
+# i,sample = next(enumerate(loader))
+# sample[0].shape
+
+# 3、建立模型
+class MyNet(nn.Module):
+    def __init__(self, input_size, hidden_size, linear_size, output_size, num_steps):
+        super().__init__()
+
+        self.rnn = nn.LSTM(input_size, hidden_size)
+        self.linear = nn.Sequential(
+            nn.Linear(hidden_size, linear_size), nn.ReLU(),
+            nn.Linear(linear_size, output_size)
+        )
+
+        self.hidden_size = hidden_size
+        # 设置参数进行反向优化和更新
+        self.loss_scale = nn.Parameter(torch.arange(1, num_steps+1).reshape(-1, 1).float())
+
+    def forward(self, x, state):
+        '''
+        rnn = nn.LSTM(input_size, hidden_size)
+        y_hat, new_state = rnn(x, state)
+        '''
+        y_hat, new_state = self.rnn(x, state)
+        # y_hat.shape -> (num_steps, batch_size, hidden_size)
+        y_hat = y_hat.permute(1, 0, 2).reshape((-1, y_hat.shape[-1]))
+        y_hat = self.linear(y_hat)
+        if isinstance(new_state, tuple):
+            new_state = tuple(item.detach() for item in new_state)
+        else:
+            new_state = new_state.detach()
+        return y_hat, new_state
+
+# 4、训练模型
+# 4、1 训练模块
+def train_time_seq(time_seq_loader, net, state, criterion, optimizer, device, use_random_iter=True):
+    total_loss = []
+    # i,(x,y) = next(enumerate(time_seq_loader))
+    for x, y in time_seq_loader:
+        if use_random_iter:
+            if isinstance(state, tuple):
+                state = tuple(torch.zeros_like(item) for item in state)
+            else:
+                state = torch.zeros_like(state, device=device)
+        # print(x.shape,y.shape)
+        if x.shape[0]<batch_size:
+            continue
+        x, y = x.float().to(device).permute(1, 0, 2), y.flatten().float().to(device).reshape(-1, 1)
+        y_hat, state = net(x, state)
+        loss = torch.sum(criterion(y_hat, y))
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss.append(loss)
+    return sum(total_loss) / len(total_loss)
+# 4、2初始化
+def init_state(batch_size, hidden_dim, device, num_layer=1, type="rnn"):
+    if type == "rnn":
+        return torch.zeros((num_layer, batch_size, hidden_dim)).to(device)
+    elif type == "lstm":
+        return (torch.zeros((num_layer, batch_size, hidden_dim)).to(device),
+                torch.zeros((num_layer, batch_size, hidden_dim)).to(device))
+net = MyNet(input_size, hidden_size, linear_size, output_size, num_steps).to(device)
+criterion = nn.MSELoss(reduction="none")
+optimizer = torch.optim.Adam(net.parameters())
+start_state = init_state(batch_size, hidden_size, device=device, type="lstm")
+# start_state[0].shape
+# 4、3训练
+training = True
+if training:
+    loss_list = []
+    tqdm_iter = tqdm(range(epochs))
+    for epoch in tqdm_iter:
+        train_loss = train_time_seq(loader, net, start_state, criterion, optimizer, device).cpu().item()
+        loss_list.append(train_loss)
+        tqdm_iter.set_postfix(train_loss=f"{train_loss}")
+# 4、4推理测试
+# 4.4.1推理输入数据准备全部数据，一次性准备
+col = 5
+line = ss[col]
+input_data = []
+for pos in range(train_steps,max_steps-num_steps):
+    temp = [line[i-train_steps:i] for i in range(pos,pos+num_steps)]
+    input_data.append(temp)
+input_pt = torch.tensor(input_data,dtype=torch.float32)
+state = init_state(input_pt.shape[0], hidden_size, device=device, type="lstm")
+if use_random_iter:
+    if isinstance(state, tuple):
+        state = tuple(torch.zeros_like(item) for item in state)
+    else:
+        state = torch.zeros_like(state, device=device)
+input_pt = input_pt.float().to(device).permute(1, 0, 2)
+y,state = net(input_pt,state)
+        
+# 4.4.2推理输入数据准备全部数据，一次性准备
+# line是一个指针，当line的数据发生变化，ss的数据也发生变化
+col = 100
+line = ss[col].copy() 
+# pos = 40
+# temp_pt.shape
+for pos in range(train_steps,max_steps-num_steps+1):
+    temp = [line[i-train_steps:i] for i in range(pos,pos+num_steps)]
+    temp_pt = torch.tensor(temp,dtype=torch.float32)
+    temp_pt = temp_pt.unsqueeze(0)
+    state = init_state(temp_pt.shape[0], hidden_size, device=device, type="lstm")
+    if use_random_iter:
+        if isinstance(state, tuple):
+            state = tuple(torch.zeros_like(item) for item in state)
+        else:
+            state = torch.zeros_like(state, device=device)
+    temp_pt = temp_pt.float().to(device).permute(1, 0, 2)
+    # y是num_step*batch_size
+    y,state = net(temp_pt,state)
+    line[pos+num_steps-1] = y[num_steps-1,0].detach().numpy()
+import matplotlib.pyplot as plt    
+plt.figure()
+plt.plot(line,alpha=0.5)
+plt.plot(ss[col],alpha=0.5)
+plt.show()
