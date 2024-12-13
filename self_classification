@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Dec 10 17:57:14 2024
+
+@author: qinpeng
+"""
+
+import torch
+from torch import nn
+class net(nn.Module):
+    def __init__(self,d_model,hidden,output):
+        super(net,self).__init__()
+        self.linear1 = nn.Linear(d_model, hidden)
+        self.linear2 = nn.Linear(hidden, output)
+        self.relu = nn.relu()
+    def forward(self,x):
+        x = self.linear1(x)
+        x = self.relu(x)
+        x = self.linear2(x)
+        return x
+d_model = 512
+hidden = 256
+output = 64
+model = net(d_model,hidden,output)
+x = torch.rand((10,d_model))
+output = model(x)
+'''
+li = distance[0,:]
+num = 5
+def minn(li,num):
+    value = np.sort(li)[num-1]
+    a = np.argwhere(distance[0,:]==value)[0,0]
+'''
+
+import numpy as np
+points = [np.random.normal(0,1,2)  for _ in range(100)]
+distance = np.full((100,100),-1.0000)
+group = np.zeros((100,100))
+begin = 0
+search = []
+search.append(begin)
+num = 1
+while True:
+    if num==1:
+        for i in range(0,100):
+            dis = np.sqrt((points[begin][0]-points[i][0])**2+(points[begin][1]-points[i][1])**2)
+            distance[0,i] = dis if dis>0 else 1000
+    li = distance[begin,:] 
+    value = np.sort(li)[num-1]
+    pos_min = np.argwhere(distance[0,:]==value)[0,0]
+    for j in range(0,100):
+        if distance[pos_min,j]==-1:
+           dis = np.sqrt((points[pos_min][0]-points[j][0])**2+(points[pos_min][1]-points[j][1])**2)
+           distance[pos_min,j] = dis if dis>0 else 1000
+    
+    pos_min_p = np.argmin(distance[pos_min,:])
+    
+    if pos_min_p==begin:
+       group[begin,pos_min] = 1 
+       num += 1
+       if num>99:
+           break
+    else:
+        if pos_min not in search: 
+           begin = pos_min
+           num = 0
+           search.append(pos_min)
+        else:
+            num += 1
+            if num>99:
+                break
+import matplotlib.pyplot as plt
+plt.figure()
+plt.plot(distance)
