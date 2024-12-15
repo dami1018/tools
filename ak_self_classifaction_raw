@@ -1,0 +1,618 @@
+
+import akshare as ak
+import numpy as np
+import pandas as pd
+import datetime
+from itertools import product
+# import taichi as ti
+# 记录一百只股票的收益率的波动
+begt = "20240101"
+endt = "20241201"
+thres = 5116
+stock_info_a_code_name_df = ak.stock_info_a_code_name()
+# thres = len(stock_info_a_code_name_df)
+# df_rate = pd.DataFrame(columns=['日期','股票代码','收益率'])
+df_sum = pd.DataFrame()
+for i in stock_info_a_code_name_df.index:
+    if i<=thres :
+        try:
+           data = ak.stock_zh_a_hist(symbol=stock_info_a_code_name_df.loc[i,"code"], period="daily", start_date=begt, end_date=endt, adjust="")
+           data['累计涨跌幅'] = data['涨跌幅'].cumsum()
+           # data['收益率'] = data['收盘价'].shift(-1)/data['收盘价'] 
+           df_sum = pd.concat([df_sum,data],ignore_index=True)
+        except Exception as e:
+           print(f"有新股{stock_info_a_code_name_df.loc[i,:]}")
+
+'''
+df_sum.to_csv(r'E:\work\股价预测\classifaction.csv')
+df_count = df_sum.groupby(['股票代码']).count()
+df_sum[df_sum['股票代码']=='000040']
+df_sum[df_sum['股票代码']=='000506']
+'''
+
+date_ser = df_sum['日期'].unique()
+code_ser = df_sum['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+merged_df = pd.merge(result_df, df_sum, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+code_li = merged_df.columns[2:].to_list()
+for i in merged_df.index:
+    if pd.isna(merged_df.loc[i,'累计涨跌幅']):
+       if i>0:
+          if merged_df.loc[i,'股票代码'] == merged_df.loc[i-1,'股票代码']:
+              merged_df.loc[i,code_li[2:]]  = merged_df.loc[i-1,code_li[2:]]
+              
+          else:
+              merged_df.loc[i,code_li[2:]]  = merged_df.loc[i+1,code_li[2:]]
+              
+       else:
+            merged_df.loc[i,code_li[2:]]  = merged_df.loc[i+1,code_li[2:]]
+length = len(merged_df) - 1
+for i in merged_df.index:
+    if pd.isna(merged_df.loc[length-i,'累计涨跌幅']):
+       if length-i<length:
+          if merged_df.loc[length-i,'股票代码'] == merged_df.loc[length-i+1,'股票代码']:
+              merged_df.loc[length-i,code_li[2:]]  = merged_df.loc[length-i+1,code_li[2:]]
+              
+          else:
+              merged_df.loc[length-i,code_li[2:]]  = merged_df.loc[length-i-1,code_li[2:]]
+              
+       else:
+            merged_df.loc[length-i,code_li[2:]]  = merged_df.loc[length-i-1,code_li[2:]]
+'''
+merged_df[merged_df['涨跌幅'].apply(lambda x: pd.isna(x))]
+len(merged_df)
+'''
+
+# 求内积矩阵
+merged_np = merged_df['涨跌幅'].to_numpy()
+merged_np_group = merged_np.reshape(len(code_ser),-1)
+merged_np_group_T = merged_np_group.T
+cor_mat = merged_np_group @ merged_np_group.T
+diag = np.array([1/np.sqrt(merged_np_group[i,:] @ merged_np_group_T[:,i]) for i in range(cor_mat.shape[0])])
+mat_diag = np.diag(diag)
+cor_mat_nor = mat_diag @ cor_mat @ mat_diag
+'''
+base = 0
+base_df = merged_df[merged_df['股票代码']==stock_info_a_code_name_df.loc[base,'code']]
+'''
+# 建立索引,并尝试排序
+code = stock_info_a_code_name_df.columns[:].to_list()
+stk_idx = 0
+num = 2
+stock_info_a_code_name_df.loc[stk_idx,code]
+np.sort(cor_mat_nor[stk_idx,:])[::-1][num-1]
+
+# 自适应聚类，双方距离最近
+l = cor_mat_nor.shape[0]
+np.fill_diagonal(cor_mat_nor,-1000)
+group = np.zeros((l,l))
+begin = 0
+search = []
+# search.append(begin)
+num = 1
+count = 1
+while True:
+    if num==1:    
+        li = cor_mat_nor[begin,:] 
+    value = np.sort(li)[::-1][num-1]
+    pos_max = np.argwhere(li==value)[0,0]    
+    pos_max_p = np.argmax(cor_mat_nor[pos_max,:])    
+    if pos_max_p==begin:
+       group[begin,pos_max] = 1 
+       num += 1
+       count += 1
+       if count>l-1 or num>l-1:
+           break
+    else:
+        if pos_max not in search: 
+           search.append(begin)
+           count += 1
+           begin = pos_max
+           num = 1
+        else:
+            num += 1
+            if num>l-1:
+                break
+# 自适应聚类，离谁最近就归到谁哪一类
+group_2 = np.zeros((l,l))
+res_2 = []
+stocks = df_sum['股票代码'].drop_duplicates().reset_index().drop(columns=['index'])
+stocks = pd.merge(stocks,stock_info_a_code_name_df,left_on='股票代码',right_on='code').drop(columns='股票代码')
+np.fill_diagonal(cor_mat_nor,-1000)
+for i in range(l):
+    j = np.argmax(cor_mat_nor[i,:])
+    res_2.append((i,j))
+# 相关性矩阵的检查
+res = [(i,j) for i in range(l) for j in range(l) if group[i,j]==1 ]
+len(res)
+for element in res:
+    print(stock_info_a_code_name_df.loc[element[0],'name'],stock_info_a_code_name_df.loc[element[1],'name'])
+for element in res_2:
+    print(stock_info_a_code_name_df.loc[element[0],'name'],stock_info_a_code_name_df.loc[element[1],'name'])
+  
+# 图神经网络
+import networkx as nx
+import matplotlib.pyplot as plt
+points = [stocks.loc[i,'name'] for i in range(l)]
+edges =[(stocks.loc[element[0],'name'],stocks.loc[element[1],'name']) for element in res_2]
+G = nx.Graph()
+G.add_nodes_from(points)
+G.add_edges_from(edges) 
+
+# 基于图方法对股票进行分类
+# 打印所有的边
+all_edges = list(G.edges())
+# 找到所有的连通分量
+connected_components = list(nx.connected_components(G))
+# 将连通分量存储在列表中
+classified_nodes = [list(component) for component in connected_components]
+# 边最多的节点
+# 获取每个节点的度
+degree_list = G.degree()
+# 将节点及其度转换为列表并排序
+sorted_nodes = sorted(degree_list, key=lambda x: x[1], reverse=True)
+df_node_degree = pd.DataFrame(sorted_nodes, columns=['Node', 'Degree'])
+df_node_degree[df_node_degree['Node']=='贵州茅台']
+stk = '招商蛇口'
+[element for element in classified_nodes if stk in element]
+node_a = '招商证券'
+node_b = ''
+shortest_path = nx.shortest_path(G, source=node_a, target=node_b)
+
+
+# 子节点生成子图
+# all_nodes = list(G.nodes())
+node = '新联电子'
+if node in G:
+    print(node)
+visit = []
+edge = []
+def find(G,node,visit,edge):
+    for no in G.neighbors(node):
+        if no not in visit:
+            visit.append(no)
+            edge.append((node,no))
+            visit,edge = find(G,no,visit,edge)
+    return(visit,edge)
+visit,edge = find(G,node,visit,edges) 
+# 画个子图吧
+G_1 = nx.Graph()
+G_1.add_nodes_from(visit)
+G_1.add_edges_from(edge) 
+
+# 画出子dash图像
+import plotly.graph_objs as go
+import plotly.offline as pyo
+import chardet
+from pypinyin import pinyin, lazy_pinyin
+import networkx as nx
+import dash
+from dash import dcc, html
+import webbrowser
+# 创建dash应用
+app = dash.Dash(__name__)
+# 假设 G 已经定义并且是一个图对象
+pos = nx.spring_layout(G_1, dim=3)  # 生成三维图的布局
+
+# 建立边的对象，并赋值
+edge_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G_1.edges():
+    x0, y0, z0 = pos[edge[0]]
+    x1, y1, z1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+    edge_trace['z'] += (z0, z1, None)
+
+# 建立点对象，并赋值
+node_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    text=[],
+    mode='markers+text',
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=6,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+
+for node in G_1.nodes():
+    x, y, z = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['z'] += (z,)
+    node_trace['text'] += (node,)
+
+# 将节点周边信息导入节点图
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+    
+
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='股票自适应分类',
+                    titlefont=dict(size=20),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    scene=dict(
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    ),
+                    annotations=[dict(
+                        text="基于内积的距离",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)]
+                ))
+
+
+# 定义 Dash 的布局
+app.layout = html.Div(children=[
+    html.H1(children='3D 分类'),
+    dcc.Graph(
+        id='network-graph',
+        figure=fig,
+        style={'height': '1200px', 'width': '2400px'} 
+    )
+])
+
+# 运行 Dash 应用
+if __name__ == '__main__':
+    webbrowser.open('http://127.0.0.1:8050/')
+    app.run_server(debug=True)
+  
+# 画图但是是乱码
+nx.draw(G, with_labels=True, node_color='lightblue', node_size=1500, font_size=16, font_color='black')
+plt.title("简单图示例")
+plt.show()
+# plotly画图,先使用拼音然后再做替换
+import plotly.graph_objs as go
+import plotly.offline as pyo
+import chardet
+from pypinyin import pinyin, lazy_pinyin
+pos = nx.spring_layout(G)
+#建立边的对象，并赋值
+edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    # print(edge,edge[0])
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+# 建立点对象，并赋值
+# 由于plotly在中文显示方面存在问题，所以先将中文转化为拼音，并建立拼音的索引，然后用拼音画图
+node_trace = go.Scatter(
+    x=[],
+    y=[],
+    text=[],
+    mode='markers+text',  # 添加 'text' 模式
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=10,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+
+for node in G.nodes():
+    x, y = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['text'] += (''.join(lazy_pinyin(node)),)
+# 将节点周边信息导入节点图
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+
+
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='<br>Network graph made with Python',
+                    titlefont=dict(size=16),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    annotations=[dict(
+                        text="Python code: <a href='https://plotly.com/python/network-graphs/'> https://plotly.com/python/network-graphs/</a>",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)],
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+
+# 存储并显示图表
+file_name = 'cust.html'
+pyo.plot(fig, filename=file_name)
+replace = {}
+for node in G.nodes:
+    replace[node] = ''.join(lazy_pinyin(node))
+# 将拼音内容替换为中文  
+with open(f'C:\\Users\\1\\{file_name}', 'rb') as file:
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+with open(f'C:\\Users\\1\\{file_name}', 'r', encoding=encoding) as file:
+    html_content = file.read()
+for node in G.nodes:
+    old_string = replace[node]  # 要替换的旧字符串
+    new_string = node  # 替换后的新字符串
+    html_content = html_content.replace(old_string, new_string)
+# 改个名字就可以了   
+with open(f'C:\\Users\\1\\q{file_name}', 'w', encoding='utf-8') as file:
+    file.write(html_content)
+
+
+# 画出三维图
+import plotly.graph_objs as go
+import plotly.offline as pyo
+import chardet
+from pypinyin import pinyin, lazy_pinyin
+import networkx as nx
+
+# 假设 G 已经定义并且是一个图对象
+pos = nx.spring_layout(G, dim=3)  # 生成三维图的布局
+
+# 建立边的对象，并赋值
+edge_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    x0, y0, z0 = pos[edge[0]]
+    x1, y1, z1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+    edge_trace['z'] += (z0, z1, None)
+
+# 建立点对象，并赋值
+node_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    text=[],
+    mode='markers+text',
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=10,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+
+for node in G.nodes():
+    x, y, z = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['z'] += (z,)
+    node_trace['text'] += (''.join(lazy_pinyin(node)),)
+
+# 将节点周边信息导入节点图
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='<br>Network graph made with Python',
+                    titlefont=dict(size=16),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    scene=dict(
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    ),
+                    annotations=[dict(
+                        text="Python code: <a href='https://plotly.com/python/network-graphs/'> https://plotly.com/python/network-graphs/</a>",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)]
+                ))
+
+# 存储并显示图表
+file_name = 'cust.html'
+pyo.plot(fig, filename=file_name)
+
+replace = {}
+for node in G.nodes:
+    replace[node] = ''.join(lazy_pinyin(node))
+
+# 将拼音内容替换为中文  
+with open(f'C:\\Users\\1\\{file_name}', 'rb') as file:
+    raw_data = file.read()
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+with open(f'C:\\Users\\1\\{file_name}', 'r', encoding=encoding) as file:
+    html_content = file.read()
+for node in G.nodes:
+    old_string = replace[node]  # 要替换的旧字符串
+    new_string = node  # 替换后的新字符串
+    html_content = html_content.replace(old_string, new_string)
+# 改个名字就可以了   
+with open(f'C:\\Users\\1\\q{file_name}', 'w', encoding='utf-8') as file:
+    file.write(html_content)
+
+
+
+# 画出dash图像
+import plotly.graph_objs as go
+import plotly.offline as pyo
+import chardet
+from pypinyin import pinyin, lazy_pinyin
+import networkx as nx
+import dash
+from dash import dcc, html
+import webbrowser
+# 创建dash应用
+app = dash.Dash(__name__)
+# 假设 G 已经定义并且是一个图对象
+pos = nx.spring_layout(G, dim=3)  # 生成三维图的布局
+
+# 建立边的对象，并赋值
+edge_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    line=dict(width=0.5, color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+for edge in G.edges():
+    x0, y0, z0 = pos[edge[0]]
+    x1, y1, z1 = pos[edge[1]]
+    edge_trace['x'] += (x0, x1, None)
+    edge_trace['y'] += (y0, y1, None)
+    edge_trace['z'] += (z0, z1, None)
+
+# 建立点对象，并赋值
+node_trace = go.Scatter3d(
+    x=[],
+    y=[],
+    z=[],
+    text=[],
+    mode='markers+text',
+    hoverinfo='text',
+    marker=dict(
+        showscale=True,
+        colorscale='YlGnBu',
+        reversescale=True,
+        color=[],
+        size=6,
+        colorbar=dict(
+            thickness=15,
+            title='Node Connections',
+            xanchor='left',
+            titleside='right'
+        ),
+        line=dict(width=2)))
+
+for node in G.nodes():
+    x, y, z = pos[node]
+    node_trace['x'] += (x,)
+    node_trace['y'] += (y,)
+    node_trace['z'] += (z,)
+    node_trace['text'] += (node,)
+
+# 将节点周边信息导入节点图
+for node, adjacencies in enumerate(G.adjacency()):
+    node_trace['marker']['color'] += (len(adjacencies[1]),)
+    node_info = '# of connections: ' + str(len(adjacencies[1]))
+    node_trace['text'] += (node_info,)
+    
+
+fig = go.Figure(data=[edge_trace, node_trace],
+                layout=go.Layout(
+                    title='股票自适应分类',
+                    titlefont=dict(size=20),
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=20, l=5, r=5, t=40),
+                    scene=dict(
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        zaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    ),
+                    annotations=[dict(
+                        text="基于内积的距离",
+                        showarrow=False,
+                        xref="paper", yref="paper",
+                        x=0.005, y=-0.002)]
+                ))
+
+
+# 定义 Dash 的布局
+app.layout = html.Div(children=[
+    html.H1(children='3D 分类'),
+    dcc.Graph(
+        id='network-graph',
+        figure=fig,
+        style={'height': '1200px', 'width': '2400px'} 
+    )
+])
+
+# 运行 Dash 应用
+if __name__ == '__main__':
+    webbrowser.open('http://127.0.0.1:8050/')
+    app.run_server(debug=True)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+a = base_df['涨跌幅'].to_numpy()
+# b = compare_df['涨跌幅'].to_numpy()
+def cor(x1,x2):
+    return np.dot(x1,x2)/(np.linalg.norm(x1)*np.linalg.norm(x2))
+result = pd.DataFrame(columns=['code','name','relation'])
+for i in range(thres):
+    compare_df = merged_df[merged_df['股票代码']==stock_info_a_code_name_df.loc[i,'code']]
+    b = compare_df['涨跌幅'].to_numpy()
+    try:
+      tp = cor(a,b)
+      # print(stock_info_a_code_name_df.loc[i,'code'],tp)
+      result.loc[i,'code'] = stock_info_a_code_name_df.loc[i,'code']
+      result.loc[i,'name'] = stock_info_a_code_name_df.loc[i,'name']
+      result.loc[i,'relation'] = tp
+    except Exception as e:
+      print(f"有新上市股票{stock_info_a_code_name_df.loc[i,:]}")
