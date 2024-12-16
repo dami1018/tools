@@ -161,8 +161,29 @@ stk = '招商蛇口'
 node_a = '招商证券'
 node_b = ''
 shortest_path = nx.shortest_path(G, source=node_a, target=node_b)
-
-
+# 锐奇股份分析,1595
+stocks[stocks['name']=='锐奇股份']
+stock_example = cor_mat_nor[1595,:]
+temp = sorted(stock_example)[::-1]
+top_10 = []
+# top 10
+for i in range(10):
+    t_value = temp[i]
+    pos = np.argwhere(stock_example==t_value)
+    pos = np.squeeze(pos).item()
+    top_10.append(pos)
+# element = 1595
+import matplotlib.pyplot as plt
+for element in top_10:
+    stock = stocks.loc[element,'code']
+    df_temp =df_sum[df_sum['股票代码']==stock]['累计涨跌幅']
+    plt.figure()
+    plt.plot(df_temp)
+    plt.show()    
+    print(stock)
+    
+    
+    
 # 子节点生成子图
 # all_nodes = list(G.nodes())
 node = '新联电子'
@@ -187,12 +208,13 @@ G_1.add_edges_from(edge)
 stk_df = pd.DataFrame(visit,columns=['stkcode'])
 stk_df = pd.merge(stk_df,stock_info_a_code_name_df,left_on='stkcode',right_on='name').drop(columns=['name'])
 for i in stk_df.index:
-    stock_individual_info_em_df = ak.stock_individual_info_em(symbol=stk_df.loc[0,'code'])
-    stk_df.loc[i,'mareket_value'] = stock_individual_info_em_df.loc[4,'value']
+    stock_individual_info_em_df = ak.stock_individual_info_em(symbol=stk_df.loc[i,'code'])
+    stk_df.loc[i,'market_value'] = stock_individual_info_em_df.loc[4,'value']
+stk_df.rename(columns={'mareket_value':'market_value'},inplace=True)
+# 平均市值
+stk_df['market_value'].mean()    
     
-
-
-# 画出子dash图像
+    
 import plotly.graph_objs as go
 import plotly.offline as pyo
 import chardet
