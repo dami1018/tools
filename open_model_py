@@ -1,0 +1,660 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Jan 12 16:30:40 2025
+
+@author: qinpeng
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+# 1、模型定义
+def self_attention(q,k,v):
+    dim = torch.tensor(q.size(-1))
+    weight = q @ k.transpose(-2,-1)/torch.sqrt(dim)
+    weight_prob = F.log_softmax(weight,dim=-1)
+    return weight_prob @ v
+class multi_attention(nn.Module):
+    def __init__(self,head,embed_dim,dropout):
+        super(multi_attention,self).__init__()
+        self.fc = nn.ModuleList(nn.Linear(embed_dim, embed_dim) for _ in range(4))
+        self.head_dim = embed_dim // head
+        self.head = head
+        self.embed_dim = embed_dim
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,q,k,v):
+        batch_num = q.size(0)
+        q,k,v = [ l(x).view(batch_num,-1,self.head,self.head_dim).transpose(1,2) for l,x in zip(self.fc,(q,k,v))]
+        x = self_attention(q, k, v)
+        x = x.transpose(1,2).contiguous().view(batch_num,-1,self.head*self.head_dim)
+        return self.fc[-1](x)
+class feedforward(nn.Module):
+    def __init__(self,embed_dim,hidden_dim,dropout=0.1):
+        super(feedforward,self).__init__()
+        self.lin1 = nn.Linear(embed_dim, hidden_dim)
+        self.lin2 = nn.Linear(hidden_dim, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,x):
+        return self.lin2(self.dropout(F.relu(self.lin1(x))))
+class layernorm(nn.Module):
+    def __init__(self,embed_dim,eps=1e-6):
+        super(layernorm,self).__init__()
+        self.w = nn.Parameter(torch.ones(embed_dim))
+        self.b = nn.Parameter(torch.zeros(embed_dim))
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return self.w * ((x - mean) / (std + self.eps)) + self.b
+class layernorm_plus(nn.Module):
+    def __init__(self,eps=1e-6):
+        super(layernorm_plus,self).__init__()
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return ((x - mean) / (std + self.eps)) 
+class generator(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+    def forward(self,x):
+        return F.log_softmax(self.fc(x).squeeze(dim=-1),dim=-1)
+class generator_plus(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator_plus,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        return self.layernorm(self.fc(x).squeeze(dim=-1))
+class encoderlayer(nn.Module):
+    def __init__(self,head,embed_dim,hidden_dim,dropout=0.1):
+        super(encoderlayer,self).__init__()
+        self.norm = nn.ModuleList(layernorm(embed_dim) for _ in range(2))
+        self.attention = multi_attention(head, embed_dim, dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.feedforward = feedforward(embed_dim, hidden_dim)
+    def forward(self,x):
+        x_norm = self.norm[0](x)
+        x_bias = self.attention(x_norm,x_norm,x_norm)
+        x_1 = x + self.dropout(x_bias)
+        x_norm_feed = self.norm[1](x_1) 
+        x_feed_bias = self.feedforward(x_norm_feed)
+        x_2 = x_1 + self.dropout(x_feed_bias)
+        return(x_2)
+class Encoder(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+class Encoder_plus(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder_plus,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator_plus(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+def distance_simple(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+def distance_simple_improved(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+# 2、数据准备
+import pandas as pd
+import akshare as ak
+import numpy as np
+from itertools import product
+import networkx as nx
+# 1、基础准备，生成stocks,stocks_market_2024,stocks_embed,dot_matrix_norm,G_stocks,stocks_group,
+# stocks_degree
+# 导入股票列表，存入stocks
+# 导入以2024年数据为基础的股票嵌入向量，存入stocks_embed
+stocks = pd.read_csv(r'/Users/qinpeng/Desktop/python项目/天软/stock.csv')
+stocks_embed = np.load(r'/Users/qinpeng/Desktop/python项目/天软/embedding.npy')
+stocks.drop(columns='Unnamed: 0',inplace=True)
+# 导入原始的行情数据，存入stocks_market_2024_orig
+path = '/Users/qinpeng/Desktop/python项目/天软/classifaction.csv'
+stocks_market_2024_orig = pd.read_csv(path)
+date_ser = stocks_market_2024_orig['日期'].unique()
+code_ser = stocks_market_2024_orig['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+# 数据清理之后的行情数据存入stocks_market_2024
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+stocks_market_2024 = pd.merge(result_df, stocks_market_2024_orig, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+code_li = stocks_market_2024.columns[2:].to_list()
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[i,'累计涨跌幅']):
+       if i>0:
+          if stocks_market_2024.loc[i,'股票代码'] == stocks_market_2024.loc[i-1,'股票代码']:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i-1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+length = len(stocks_market_2024) - 1
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[length-i,'累计涨跌幅']):
+       if length-i<length:
+          if stocks_market_2024.loc[length-i,'股票代码'] == stocks_market_2024.loc[length-i+1,'股票代码']:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i+1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+# 计算点积，最终标准化点积数据存入dot_mat_norm
+dot_mat = stocks_embed @ stocks_embed.T
+liag = [1/np.sqrt(stocks_embed[i,:] @ stocks_embed.T[:,i]) for i in range(stocks_embed.shape[0])]
+liag_mat = np.diag(liag)
+dot_mat_norm = liag_mat @ dot_mat @ liag_mat 
+np.fill_diagonal(dot_mat_norm, -1000)
+# 生成点积图，G_stocks
+temp = np.argmax(dot_mat_norm,1)
+edges = [(i,temp[i]) for i in range(len(temp))]
+edges_stk = [(stocks.loc[element[0],'name'],stocks.loc[element[1],'name']) for element in edges]
+G_stocks = nx.Graph()
+G_stocks.add_nodes_from(stocks['name'].to_list())
+G_stocks.add_edges_from(edges_stk)
+# 依据图连接对股票进行分类，存入stocks_group
+connected_stocks = list(nx.connected_components(G_stocks))
+stocks_group = [list(component) for component in connected_stocks]
+# 导出每只股票的度
+degree_list = G_stocks.degree()
+sorted_nodes = sorted(degree_list, key=lambda x: x[1], reverse=True)
+stocks_degree = pd.DataFrame(sorted_nodes, columns=['Node', 'Degree'])
+# https://cn.pornhub.com/view_video.php?viewkey=ph6245d59bf39d2
+# 导出列表股票中当日数据
+from WindPy import *
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+
+stk = '今飞凯达'
+num = stocks[stocks['name']==stk].index.to_list()[0]
+node_list = list(G_stocks[stk])
+num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+stk_list = stocks.iloc[num_list]['code'].to_list()
+stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+fields="open,high,low,close,amt"
+data_group = pd.DataFrame()
+for stock in stk_list:
+    error,data_temp = w.wsi(stock, "open,high,low,close,amt", "2024-12-02 09:00:00", "2025-01-09 15:00:00",  "Fill=Previous",usedf=True)
+    data_temp['stk'] = stock
+    data_group = pd.concat([data_group,data_temp])
+
+data_group_np = np.array(data_group)
+data_group_np_days = data_group_np.reshape(31,-1,242,6)
+data_group_np_days_val = data_group_np_days[:,:,:,0:4].astype(float)
+data_group_np_days_vol = data_group_np_days[:,:,:,4:5].astype(float)
+data_group_val_mean = np.mean(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+data_group_vol_mean = np.mean(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+data_group_val_std = np.std(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+data_group_vol_std = np.std(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+data_group_val_norm = (data_group_np_days_val - data_group_val_mean)/data_group_val_std
+data_group_vol_norm = (data_group_np_days_vol - data_group_vol_mean)/data_group_vol_std
+data_group_norm = np.concatenate((data_group_val_norm,data_group_vol_norm),axis=-1)
+
+data_group_norm = np.transpose(data_group_norm,axes=(1,0,2,3))
+data_group_in = data_group_norm[0:-1,:,:,:].reshape(27,31,-1)
+y_np = np.zeros((27,31))
+data_group_np_days_val = np.transpose(data_group_np_days_val,axes=(1,0,2,3))
+for i in range(27):
+    for j in range(31):
+        y_np[i,j] = (data_group_np_days_val[i+1,j,0,0]-data_group_np_days_val[i,j,241,3])/data_group_np_days_val[i,j,241,3]
+y_indices = np.argsort(y_np,axis=-1) 
+y_sort = np.zeros((27,31))
+for i in range(27):
+    for j in range(31):
+        y_sort[i,y_indices[i,j]] = j
+# 3、实例化模型并训练
+head = 1
+embed_dim = 1210
+dropout = 0.1
+hidden_dim = 256
+layer_num = 2
+lr = 0.01
+epoch = 400
+encoder = Encoder(layer_num, head, embed_dim, hidden_dim)
+# data_group_in_pt 有0 对datagroup进行了修改
+data_group_in_pt = torch.tensor(data_group_in,dtype=torch.float32)
+y_pred = encoder(data_group_in_pt)
+y_sort_pt = torch.tensor(y_sort,dtype=torch.float32)
+    
+import torch.optim as optim
+optimizer = optim.Adam(encoder.parameters(),lr=0.001)
+
+optimizer = optim.Adam(filter(lambda p: p.requires_grad, encoder.parameters()), lr=0.001)
+criterion = nn.MSELoss()
+# 1、损失函数1，自定义的
+# 损失函数太大了，到底使不使用logsoftmax
+# 损失函数交叉计算，用两个损失函数，来训练模型
+for i in range(epoch):    
+    encoder.train()
+    optimizer.zero_grad()
+    y_pred = encoder(data_group_in_pt)
+    loss = distance_simple(y_pred, y_sort_pt)
+    # loss.requires_grad_(True)
+    loss.backward()
+    optimizer.step()
+    print(f"Epoch {i}, Loss: {loss.item()}")
+
+encoder.encoder[0].norm.parameters()
+
+for i in range(epoch):    
+    encoder.train()
+    optimizer.zero_grad()
+    y_pred = encoder(data_group_in_pt)
+    loss = (y_pred - y_sort_pt).mean()
+    # loss.requires_grad_(True)
+    loss.backward()
+    optimizer.step()
+    print(f"Epoch {i}, Loss: {loss.item()}")
+# 对结果进行比较，看差异大不大，结果是不大
+y_pred.shape
+a = y_pred[0,:]
+a.shape
+a
+b = y_sort_pt[0,:]
+data = y_pred
+torch.argsort(a)
+y_indices[0,:]
+def sort_dics(data):
+    y_indices = torch.argsort(data,dim=-1) 
+    y_sort = torch.ones_like(y_indices)
+    for i in range(y_indices.size(0)):
+        for j in range(y_indices.size(1)):
+            y_sort[i,y_indices[i,j]] = j
+    return y_sort
+i = 3
+torch.tensor(y_sort[i,:])
+y_sort_pt[i,:]
+# 保存模型并对模型进行检验
+torch.save(encoder,'encoder_0114.pth')
+encoder1 = torch.load('encoder_0114.pth')
+data_group_norm.shape
+x_test = data_group_norm[27:28,:,:,:]
+x_test.shape
+data_group_in_pt.shape
+x_test = x_test.reshape(1,-1,242*5)
+x_test_pt = torch.tensor(x_test,dtype=torch.float32)
+y_test = encoder(x_test_pt)
+y_test.shape
+data = y_test
+res = sort_dics(y_test)
+res.shape
+y_indices.shape
+len(stk_list)
+res = res.reshape(-1)
+res = res.tolist()
+node_list
+[(i.item(),j)for i,j in zip(res,node_list)]
+for parameter in encoder.parameters():
+    print(parameter.grad)
+    print(parameter.grad.data)
+
+# 将参数的详细信息存储起来
+parameter_list = []
+for name,parameter in encoder.named_parameters():
+    parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item(),parameter.grad.data))
+    if parameter.grad.norm()>1:
+        print(name)
+    
+    parameter_list.append((name,list(parameter.grad.data.shape),parameter.grad.data))
+    print(name,parameter.grad)
+# 找到梯度最大的参数，即影响力最大的参数
+parameter_list.sort(key=lambda x:x[2],reverse=True)
+encoder.generator.fc.weight.grad.norm().item()
+encoder.generator.fc.weight.grad.shape
+# 只对影响力参数进行训练
+for name,parameter in encoder.named_parameters():
+    if parameter.grad.norm().item() < 1000:
+        print(name,parameter.requires_grad)
+        parameter.requires_grad = False
+# 恢复所有的参数
+for name,parameter in encoder.named_parameters():    
+    parameter.requires_grad = True    
+torch.isnan(y_pred).any()
+
+with torch.autograd.detect_anomaly():
+    # 前向传播
+    output = model(input_data)
+    loss = criterion(output, target)
+
+    # 反向传播
+    loss.backward()
+
+# 全部都是nan
+# 一个一个找
+# encoder = Encoder(layer_num, head, embed_dim, hidden_dim)
+y_pred = encoder(data_group_in_pt)
+norm = layernorm(embed_dim)
+torch.isnan(norm(data_group_in_pt)).any()
+torch.isnan(data_group_in_pt).any()
+torch.isnan(y_pred).any()
+# 找到 NaN 值的位置
+nan_indices = torch.isnan(data_group_in_pt)
+data_group_in_pt[5,2,:]
+data_group_in_pt[5,2,:] = 0
+# 获取 NaN 值的坐标
+nan_coords = torch.nonzero(nan_indices)
+nan_coords.shape
+data_group_in_pt.shape
+torch.mean(data_group_in_pt,dim=-1).shape
+torch.std(data_group_in_pt,dim=-1).shape
+y_pred.shape
+y_sort_pt.shape
+for parameter in encoder.parameters():
+    print(parameter)
+for parameter in encoder.parameters():
+    print(parameter.grad)
+
+encoder.eval()
+res = encoder(data_group_in_pt)
+res.item()    
+data_group_in_pt.requires_grad
+loss.backward   
+y_pred.requires_grad
+loss.requires_grad
+y_sort_pt.requires_grad
+for parameter in encoder.parameters():
+    print(parameter)
+    print(parameter.numel(),parameter.requires_grad)
+sum(parameter.numel() for parameter in encoder.parameters())
+
+class lin(nn.Module):
+    def __init__(self,n,m):
+        super(lin,self).__init__()
+        self.fc = nn.Linear(n, m)
+    def forward(self,x):
+        return(self.fc(x))
+n = 10
+m = 10
+x = torch.randn((100,10,10))
+y = torch.randn((100,10,10))
+model = lin(10,10)
+optimizer = optim.Adam(model.parameters(),lr=0.01)
+criterion = nn.MSELoss()
+for epoch in range(10):
+    # 将模型设置为训练模式
+    model.train()
+    
+    # 清零梯度
+    optimizer.zero_grad()
+    
+    # 前向传播
+    output = model(x)
+    
+    # 计算损失
+    loss = criterion(output, y)
+    
+    # 反向传播
+    loss.backward()
+    
+    # 更新参数
+    optimizer.step()
+    
+   
+    print(f"Epoch {epoch}, Loss: {loss.item()}")
+
+for parameter in model.parameters():
+    print(parameter)
+    print(parameter.grad)    
+loss.requires_grad
+
+
+
+
+
+
+
+x1 = torch.randn(10,10,10)
+x1.view(-1,x1.size(-1)).shape
+
+x = [0.6,0.3,2.5,-0.1,7]
+y = [4,1,0,2,3]
+distance_simple(x, y)
+
+
+x_pt = torch.tensor(x)
+y_pt = torch.tensor(y)    
+distance_simple(x_pt,y_pt)   
+
+layer = layernorm(10)
+x = torch.randn(1,10,10)
+y = torch.randn(1,10,1)
+
+
+
+F.log_softmax(y.squeeze(dim=-1),dim=-1).shape
+layer(x).shape
+head = 1
+embed_dim = 10
+dropout = 0.1
+hidden_dim = 20
+layer_num = 2
+encoder = encoderlayer(head,embed_dim,hidden_dim) 
+encoder = Encoder(layer_num, head, embed_dim, hidden_dim)
+a = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+a[0](x)
+
+
+encoder = Encoder(layer_num, head, embed_dim, hidden_dim)
+res = encoder(x)
+y = torch.randperm(10)
+y = y.unsqueeze(0)
+y.shape
+res
+loss = distance_simple(res, y)
+sum(parameter.numel() for parameter in encoder.parameters())
+for parameter in encoder.parameters():
+    print(parameter)
+    
+# 建立数据函数,返回的是标准化好的tuple
+stk = '今飞凯达'
+def data_pre(stk,begt="2024-12-02",endt="2025-01-09",fields="open,high,low,close,amt"):
+    begt = begt + " 09:00:00"
+    endt = endt + " 15:00:00"
+    num = stocks[stocks['name']==stk].index.to_list()[0]
+    node_list = list(G_stocks[stk])
+    num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+    stk_list = stocks.iloc[num_list]['code'].to_list()
+    stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+    fields="open,high,low,close,amt"
+    stk_n = len(stk_list)
+    features_n = len(fields.split(','))
+    data_group = pd.DataFrame()
+    for stock in stk_list:
+        error,data_temp = w.wsi(stock, "open,high,low,close,amt", begt, endt,  "Fill=Previous",usedf=True)
+        # data_temp['stk'] = stock
+        data_group = pd.concat([data_group,data_temp])
+    
+    data_group_np = np.array(data_group)
+    data_group_np_days = data_group_np.reshape(stk_n,-1,242,features_n)
+    days_n = data_group_np_days.shape[1]
+    data_group_np_days_val = data_group_np_days[:,:,:,0:4].astype(float)
+    data_group_np_days_vol = data_group_np_days[:,:,:,4:5].astype(float)
+    data_group_val_mean = np.mean(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+    data_group_vol_mean = np.mean(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+    data_group_val_std = np.std(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+    data_group_vol_std = np.std(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+    data_group_val_norm = (data_group_np_days_val - data_group_val_mean)/data_group_val_std
+    data_group_vol_norm = (data_group_np_days_vol - data_group_vol_mean)/data_group_vol_std
+    data_group_norm = np.concatenate((data_group_val_norm,data_group_vol_norm),axis=-1)
+    
+    data_group_norm = np.transpose(data_group_norm,axes=(1,0,2,3))
+    data_group_in = data_group_norm[0:-1,:,:,:].reshape((days_n-1),31,-1)
+    y_np = np.zeros(((days_n-1),stk_n))
+    data_group_np_days_val = np.transpose(data_group_np_days_val,axes=(1,0,2,3))
+    for i in range(days_n-1):
+        for j in range(stk_n):
+            y_np[i,j] = (data_group_np_days_val[i+1,j,0,0]-data_group_np_days_val[i,j,241,3])/data_group_np_days_val[i,j,241,3]
+    y_indices = np.argsort(y_np,axis=-1) 
+    y_sort = np.zeros((days_n-1,stk_n))
+    for i in range(days_n-1):
+        for j in range(stk_n):
+            y_sort[i,y_indices[i,j]] = j
+    data_group_in[np.isnan(data_group_in)]= 0
+    return(data_group_in,y_sort)
+begt = '2024-01-03'
+endt = '2025-01-15'
+data_group_in,y_sort = data_pre(stk,begt=begt,endt=endt)
+# data_group_in.shape data_group_in_pt.shape  np.isnan(data_group_in).any()
+# y_sort.shape y_sort_pt.shape
+# x_test.shape y_test.shape out_test.shape
+# 格式改为tensor
+# 生成train和test集
+# out_test.shape
+# temp.shape
+# i = 0 j = 0
+data_group_in_pt = torch.tensor(data_group_in[0:27,:,:],dtype=torch.float32)
+y_sort_pt = torch.tensor(y_sort[0:27,:],dtype=torch.float32)
+# 分批次训练的代码
+epoch = 100
+batch_size = 25
+length = data_group_in.shape[0]
+head = 1
+embed_dim = 1210
+dropout = 0.1
+hidden_dim = 256
+layer_num = 2
+lr = 0.01
+num = length // batch_size
+encoder_plus = Encoder_plus(layer_num, head, embed_dim, hidden_dim)
+optimizer_plus = optim.Adam(encoder_plus.parameters(),lr=0.001)
+parameter_list = []
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        encoder.train()
+        optimizer.zero_grad()
+        y_pred = encoder(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer.step()
+        print(f"Epoch {i}, Loss: {loss.item()}")
+
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        encoder_plus.train()
+        optimizer_plus.zero_grad()
+        y_pred = encoder_plus(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer_plus.step()
+        fc_grad = 0
+        else_grad = 0
+        for name,parameter in encoder_plus.named_parameters():
+            parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item(),parameter.grad.data))
+            if name=='generator.fc.weight':
+                fc_grad += parameter.grad.norm()
+            else:
+                else_grad += parameter.grad.norm()
+            
+        print(f"Epoch {i}, Step {j},Loss: {loss.item()},fc: {fc_grad},else: {else_grad}")
+
+
+
+x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+out_test = encoder_plus(x_test)
+y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+loss = distance_simple(out_test, y_test)
+sort_dics(out_test)
+temp = torch.range(0, 31)
+temp = temp[torch.randperm(temp.size(0))]
+temp = temp.unsqueeze(dim=0)
+loss = distance_simple(out_test, temp)
+loss = 0
+for i in range(100):
+    temp = torch.range(0, 31)
+    temp = temp[torch.randperm(temp.size(0))]
+    temp = temp.unsqueeze(dim=0)
+    loss += distance_simple(out_test, temp)
+loss/100
+out_train = encoder_plus(torch.tensor(data_group_in[0:225,:,:],dtype=torch.float32))
+i = 139
+out_train[i,:].mean()
+out_train[i,:].std()
+distance_simple(out_train[i:i+1,:], torch.tensor(y_sort[i:i+1,:],dtype=torch.float32))
+distance_simple(out_train[i:i+1,:], temp)
+# 整个torch过程可视化
+from torch.utils.tensorboard import SummaryWriter
+print(out_test.grad_fn)
+
+from torchviz import make_dot
+
+dot = make_dot(out_test, params=dict(encoder.named_parameters()))
+dot.render("computation_graph", format="png")
+
+torch.onnx.export(encoder,data_group_in_pt, "model.onnx", verbose=True)
+
+import os
+# 获取当前工作目录
+current_path = os.getcwd()
+
+
+writer = SummaryWriter()
+# 使用 add_graph 可视化模型
+# 注意：这里假设你已经有一个 PyTorch 模型，如果没有，可以使用 onnx-tf 进行转换
+# 这里我们直接加载 ONNX 模型并使用 add_graph
+# 你可能需要将 ONNX 模型转换为 PyTorch 模型，或者使用其他方法
+writer.add_graph(encoder, data_group_in_pt)
+
+# 关闭SummaryWriter
+writer.close()
+
+
+
+
+error,data_temp = w.wsi(stock, "open,high,low,close,amt", "2024-12-02 09:00:00", "2025-01-09 15:00:00",  "Fill=Previous",usedf=True)
+stock
+data_temp.shape
+encoder(x).shape   
+model = multi_attention(head, embed_dim, dropout) 
+feed = feedforward(10, 20) 
+feed(x).shape  
+result = model(x,x,x) 
+means = x.mean(dim=-1,keepdim=True)
+means.shape
+(x - means).shape
+result.shape     
+result = self_attention(x,x,x)
+result.shape
