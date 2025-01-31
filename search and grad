@@ -1,0 +1,68 @@
+import torch.nn as nn
+import torch
+import torch.optim as optim
+transformer_model = nn.Transformer(nhead=16, num_encoder_layers=2)
+src = torch.rand((10, 32, 512))
+tgt = torch.rand((20, 32, 512))
+
+sum(parameter.numel() for parameter in transformer_model.parameters())
+
+out = transformer_model(src, tgt)
+
+optimizer = optim.Adam(transformer_model.parameters(),lr=0.001)
+criterion = nn.CrossEntropyLoss()
+epoch = 10
+for i in range(epoch):
+    transformer_model.train()
+    optimizer.zero_grad()
+    out = transformer_model(src, tgt)
+    loss = criterion(out,tgt)
+    loss.backward()
+parameter_list = []
+for name,parameter in transformer_model.named_parameters():
+    parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item(),parameter.grad.data))
+    
+from exa_py import Exa
+
+exa = Exa(api_key="2d21d53a-ca67-4e54-9334-08e22f155c57")
+
+result = exa.search(
+  "blog post about Rust",
+  type="auto"
+)
+
+result = exa.search(
+  "中国银行的最新消息",
+  type="auto"
+)
+
+from baidusearch.baidusearch import search
+ 
+# 搜索关键字 "Full Stack Developer"
+results = search('中国银行')
+ 
+# 打印搜索结果
+for result in results:
+    print(f"Title: {result['title']}")
+    print(f"Abstract: {result['abstract']}")
+    print(f"URL: {result['url']}")
+    print("-" * 40)
+    
+from search_engines import Google
+
+engine = Google()
+results = engine.search("my query")
+links = results.links()
+
+print(links)
+
+from search_engines import Google
+import sys
+print(sys.path)
+search_engines_path = '/Users/qinpeng/Desktop/python项目/其他/Search-Engines-Scraper-master'
+sys.path.append(search_engines_path)
+engine = Google()
+results = engine.search("my query")
+links = results.links()
+print(links)
+
