@@ -1,0 +1,925 @@
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+# 1、模型定义
+def self_attention(q,k,v):
+    dim = torch.tensor(q.size(-1))
+    weight = q @ k.transpose(-2,-1)/torch.sqrt(dim)
+    weight_prob = F.log_softmax(weight,dim=-1)
+    return weight_prob @ v
+class multi_attention(nn.Module):
+    def __init__(self,head,embed_dim,dropout):
+        super(multi_attention,self).__init__()
+        self.fc = nn.ModuleList(nn.Linear(embed_dim, embed_dim) for _ in range(4))
+        self.head_dim = embed_dim // head
+        self.head = head
+        self.embed_dim = embed_dim
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,q,k,v):
+        batch_num = q.size(0)
+        q,k,v = [ l(x).view(batch_num,-1,self.head,self.head_dim).transpose(1,2) for l,x in zip(self.fc,(q,k,v))]
+        x = self_attention(q, k, v)
+        x = x.transpose(1,2).contiguous().view(batch_num,-1,self.head*self.head_dim)
+        return self.fc[-1](x)
+class feedforward(nn.Module):
+    def __init__(self,embed_dim,hidden_dim,dropout=0.1):
+        super(feedforward,self).__init__()
+        self.lin1 = nn.Linear(embed_dim, hidden_dim)
+        self.lin2 = nn.Linear(hidden_dim, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,x):
+        return self.lin2(self.dropout(F.relu(self.lin1(x))))
+class layernorm(nn.Module):
+    def __init__(self,embed_dim,eps=1e-6):
+        super(layernorm,self).__init__()
+        self.w = nn.Parameter(torch.ones(embed_dim))
+        self.b = nn.Parameter(torch.zeros(embed_dim))
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return self.w * ((x - mean) / (std + self.eps)) + self.b
+class layernorm_plus(nn.Module):
+    def __init__(self,eps=1e-6):
+        super(layernorm_plus,self).__init__()
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return ((x - mean) / (std + self.eps)) 
+class generator(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+    def forward(self,x):
+        return F.log_softmax(self.fc(x).squeeze(dim=-1),dim=-1)
+class generator_plus(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator_plus,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        return self.layernorm(self.fc(x).squeeze(dim=-1))
+class encoderlayer(nn.Module):
+    def __init__(self,head,embed_dim,hidden_dim,dropout=0.1):
+        super(encoderlayer,self).__init__()
+        self.norm = nn.ModuleList(layernorm(embed_dim) for _ in range(2))
+        self.attention = multi_attention(head, embed_dim, dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.feedforward = feedforward(embed_dim, hidden_dim)
+    def forward(self,x):
+        x_norm = self.norm[0](x)
+        x_bias = self.attention(x_norm,x_norm,x_norm)
+        x_1 = x + self.dropout(x_bias)
+        x_norm_feed = self.norm[1](x_1) 
+        x_feed_bias = self.feedforward(x_norm_feed)
+        x_2 = x_1 + self.dropout(x_feed_bias)
+        return(x_2)
+class Encoder(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+class Encoder_plus(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder_plus,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator_plus(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+def distance_simple(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+def distance_simple_improved(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+
+
+# 2、数据准备
+# 2、1 根据相关性，生成图数据库
+import pandas as pd
+import akshare as ak
+import numpy as np
+from itertools import product
+import networkx as nx
+# 1、基础准备，生成stocks,stocks_market_2024,stocks_embed,dot_matrix_norm,G_stocks,stocks_group,
+# stocks_degree
+# 导入股票列表，存入stocks
+# 导入以2024年数据为基础的股票嵌入向量，存入stocks_embed
+stocks = pd.read_csv(r'/Users/qinpeng/Desktop/python项目/天软/stock.csv')
+stocks_embed = np.load(r'/Users/qinpeng/Desktop/python项目/天软/embedding.npy')
+stocks.drop(columns='Unnamed: 0',inplace=True)
+# 导入原始的行情数据，存入stocks_market_2024_orig
+path = '/Users/qinpeng/Desktop/python项目/天软/classifaction.csv'
+stocks_market_2024_orig = pd.read_csv(path)
+date_ser = stocks_market_2024_orig['日期'].unique()
+code_ser = stocks_market_2024_orig['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+# 数据清理之后的行情数据存入stocks_market_2024
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+stocks_market_2024 = pd.merge(result_df, stocks_market_2024_orig, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+code_li = stocks_market_2024.columns[2:].to_list()
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[i,'累计涨跌幅']):
+       if i>0:
+          if stocks_market_2024.loc[i,'股票代码'] == stocks_market_2024.loc[i-1,'股票代码']:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i-1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+length = len(stocks_market_2024) - 1
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[length-i,'累计涨跌幅']):
+       if length-i<length:
+          if stocks_market_2024.loc[length-i,'股票代码'] == stocks_market_2024.loc[length-i+1,'股票代码']:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i+1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+# 计算点积，最终标准化点积数据存入dot_mat_norm
+dot_mat = stocks_embed @ stocks_embed.T
+liag = [1/np.sqrt(stocks_embed[i,:] @ stocks_embed.T[:,i]) for i in range(stocks_embed.shape[0])]
+liag_mat = np.diag(liag)
+dot_mat_norm = liag_mat @ dot_mat @ liag_mat 
+np.fill_diagonal(dot_mat_norm, -1000)
+# 生成点积图，G_stocks
+temp = np.argmax(dot_mat_norm,1)
+edges = [(i,temp[i]) for i in range(len(temp))]
+edges_stk = [(stocks.loc[element[0],'name'],stocks.loc[element[1],'name']) for element in edges]
+G_stocks = nx.Graph()
+G_stocks.add_nodes_from(stocks['name'].to_list())
+G_stocks.add_edges_from(edges_stk)
+# 依据图连接对股票进行分类，存入stocks_group
+connected_stocks = list(nx.connected_components(G_stocks))
+stocks_group = [list(component) for component in connected_stocks]
+# 导出每只股票的度
+degree_list = G_stocks.degree()
+sorted_nodes = sorted(degree_list, key=lambda x: x[1], reverse=True)
+stocks_degree = pd.DataFrame(sorted_nodes, columns=['Node', 'Degree'])
+
+# 2、2 接入wind数据库
+from WindPy import *
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+# 2、3 导入相关节点的高频数据
+stk = '锐奇股份'
+def data_pre(stk,begt="2024-12-02",endt="2025-01-09",fields="open,high,low,close,amt"):
+    begt = begt + " 09:00:00"
+    endt = endt + " 15:00:00"
+    num = stocks[stocks['name']==stk].index.to_list()[0]
+    node_list = list(G_stocks[stk])
+    num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+    stk_list = stocks.iloc[num_list]['code'].to_list()
+    stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+    fields="open,high,low,close,amt"
+    stk_n = len(stk_list)
+    features_n = len(fields.split(','))
+    data_group = pd.DataFrame()
+    for stock in stk_list:
+        error,data_temp = w.wsi(stock, "open,high,low,close,amt", begt, endt,  "Fill=Previous",usedf=True)
+        data_temp['stk'] = stock
+        # print(stock,len(data_temp))
+        data_group = pd.concat([data_group,data_temp])
+    data_group_temp = data_group.reset_index()
+    date_list = data_group_temp['index'].unique()
+    stock_list = data_group_temp['stk'].unique() 
+    combinations = list(product(stock_list,date_list))
+    data_group_base = pd.DataFrame(combinations,columns=['stk','index'])
+    data_group_base = pd.merge(data_group_base,data_group_temp,on=['stk','index'],how='outer')
+    data_group_base.fillna(1,inplace=True)
+    data_group_base.drop(columns=['stk','index'],inplace=True)
+    data_group_np = np.array(data_group_base)
+    
+    '''  
+    data_group_np.shape
+    data_group.shape
+    data_group['stk'].count()
+    a = data_group.groupby('stk').size()
+    b = data_group[data_group['stk']=='300097.SZ'].reset_index()
+    b.dtypes
+    b['date'] = b['index'].dt.date
+    c = b.groupby('date').size()
+    data_group_temp = data_group.reset_index()
+    data_group_temp['date'] = data_group_temp['index'].dt.date 
+    date = data_group_temp['date'].unique()
+    date = data_group[]
+    length = len(date)
+    code_date = data_group_temp.groupby('stk')['date'].count().reset_index()
+    max_date = code_date['date'].max()
+    stk_short = code_date[code_date['date']<max_date]
+    for stk in stk_short['stk'].tolist():
+        date_short = data_group_temp[data_group_temp['stk']==stk]['date'].reset_index()
+        date_short = date_short['date'].unique()
+    list(set(date) - set(date_short))
+    data_group_temp['time'] = data_group_temp['index'].dt.time
+    time = data_group_temp['time'].unique()
+    combinations = list(product(stock,date,time))
+    a = pd.DataFrame(combinations,columns=['stock','date','time'])
+    stock = data_group_temp['stk'].unique()
+    data_group_temp = data_group.reset_index()
+    index = data_group_temp['index'].unique()
+    stock = data_group_temp['stk'].unique()
+    combinations = list(product(stock,index))
+    data_base = pd.DataFrame(combinations,columns=['stk','index'])
+    data_base = pd.merge(data_base,data_group_temp,how='outer',on=['stk','index'])
+    data_base[data_base['open'].isnull()]
+    data_base[data_base['stk']=='300422.SZ']
+    data_base.fillna(1,inplace=True)
+    data_base.drop(columns=['stk','index'],inplace=True)
+    data_group_np = np.array(data_base)
+    '''
+    # data_group_np = np.array(data_group)
+    data_group_np_days = data_group_np.reshape(stk_n,-1,242,features_n)
+    days_n = data_group_np_days.shape[1]
+    data_group_np_days_val = data_group_np_days[:,:,:,0:4].astype(float)
+    data_group_np_days_vol = data_group_np_days[:,:,:,4:5].astype(float)
+    data_group_val_mean = np.mean(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+    data_group_vol_mean = np.mean(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+    data_group_val_std = np.std(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+    data_group_vol_std = np.std(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+    data_group_val_norm = (data_group_np_days_val - data_group_val_mean)/data_group_val_std
+    data_group_vol_norm = (data_group_np_days_vol - data_group_vol_mean)/data_group_vol_std
+    data_group_norm = np.concatenate((data_group_val_norm,data_group_vol_norm),axis=-1)    
+    data_group_norm = np.transpose(data_group_norm,axes=(1,0,2,3))
+    data_group_in = data_group_norm[0:-1,:,:,:].reshape((days_n-1),stk_n,-1)
+    y_np = np.zeros(((days_n-1),stk_n))
+    data_group_np_days_val = np.transpose(data_group_np_days_val,axes=(1,0,2,3))
+    for i in range(days_n-1):
+        for j in range(stk_n):
+            y_np[i,j] = (data_group_np_days_val[i+1,j,0,0]-data_group_np_days_val[i,j,241,3])/data_group_np_days_val[i,j,241,3]
+    y_indices = np.argsort(y_np,axis=-1) 
+    y_sort = np.zeros((days_n-1,stk_n))
+    for i in range(days_n-1):
+        for j in range(stk_n):
+            y_sort[i,y_indices[i,j]] = j
+    data_group_in[np.isnan(data_group_in)]= 0
+    return(data_group_in,y_sort)
+begt = '2024-01-03'
+endt = '2025-01-15'
+data_group_in,y_sort = data_pre(stk,begt=begt,endt=endt)
+
+# 对模型结果进行存储
+stk = '今飞凯达'
+stk = '锐奇股份'
+len(list(G_stocks[stk]))
+# stocks_embed = np.load(r'/Users/qinpeng/Desktop/python项目/天软/embedding.npy')
+np.save(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_input.npy', data_group_in)
+np.save(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_target.npy', y_sort)
+# 3、分批次训练
+
+'''
+# 训练参数调整
+# 将参数的详细信息存储起来
+parameter_list = []
+for name,parameter in encoder.named_parameters():
+    parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item(),parameter.grad.data))
+    if parameter.grad.norm()>1:
+        print(name)
+    
+    parameter_list.append((name,list(parameter.grad.data.shape),parameter.grad.data))
+    print(name,parameter.grad)
+# 找到梯度最大的参数，即影响力最大的参数
+parameter_list.sort(key=lambda x:x[2],reverse=True)
+encoder.generator.fc.weight.grad.norm().item()
+encoder.generator.fc.weight.grad.shape
+# 只对影响力参数进行训练
+for name,parameter in encoder.named_parameters():
+    if parameter.grad.norm().item() < 1000:
+        print(name,parameter.requires_grad)
+        parameter.requires_grad = False
+# 恢复所有的参数
+for name,parameter in encoder.named_parameters():    
+    parameter.requires_grad = True    
+torch.isnan(y_pred).any()
+'''
+epoch = 100
+batch_size = 25
+length = data_group_in.shape[0]
+head = 1
+embed_dim = 1210
+dropout = 0.1
+hidden_dim = 256
+layer_num = 2
+lr = 0.01
+num = length // batch_size
+encoder_plus = Encoder_plus(layer_num, head, embed_dim, hidden_dim)
+optimizer_plus = optim.Adam(encoder_plus.parameters(),lr=0.001)
+# 3、1 训练方法一
+parameter_list = []
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        encoder_plus.train()
+        optimizer_plus.zero_grad()
+        y_pred = encoder_plus(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer_plus.step()
+        fc_grad = 0
+        else_grad = 0
+        for name,parameter in encoder_plus.named_parameters():
+            parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item()))
+            if name=='generator.fc.weight':
+                fc_grad += parameter.grad.norm()
+            else:
+                else_grad += parameter.grad.norm()
+            
+        print(f"Epoch {i}, Step {j},Loss: {loss.item()},fc: {fc_grad},else: {else_grad}")
+# 3、2 训练方法二
+
+parameter_list = []
+stk_len = len(list(G_stocks[stk]))
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        encoder_plus.train()
+        optimizer_plus.zero_grad()
+        y_pred = encoder_plus(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer_plus.step()
+        fc_grad = 0
+        else_grad = 0
+        for name,parameter in encoder_plus.named_parameters():
+            parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item()))
+            if name=='generator.fc.weight':
+                fc_grad += parameter.grad.norm()
+            else:
+                else_grad += parameter.grad.norm()
+        with torch.no_grad():
+            x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+            out_test = encoder_plus(x_test)
+            y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+            predict_loss = distance_simple(out_test, y_test)
+            random_loss = 0
+            for k in range(100):
+                temp = torch.range(0, (stk_len-1))
+                temp = temp[torch.randperm(temp.size(0))]
+                temp = temp.unsqueeze(dim=0)
+                random_loss += distance_simple(out_test, temp)
+            random_loss = random_loss / 100
+        # torch.set_printoptions(precision=6,  sci_mode=False)
+        print(f"Epoch {i}, Step {j},Loss: {loss.item():.6f},predict_loss: {predict_loss:.6f},random_loss: {random_loss:.6f},fc: {fc_grad:.6f},else: {else_grad:.6f}")
+# 4、测试检验
+parameter_list[3094]
+x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+out_test = encoder_plus(x_test)
+y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+loss = distance_simple(out_test, y_test)
+loss
+sort_dics(out_test)
+temp = torch.range(0, 31)
+temp = temp[torch.randperm(temp.size(0))]
+temp = temp.unsqueeze(dim=0)
+loss = distance_simple(out_test, temp)
+loss
+loss = 0
+for i in range(100):
+    temp = torch.range(0, 31)
+    temp = temp[torch.randperm(temp.size(0))]
+    temp = temp.unsqueeze(dim=0)
+    loss += distance_simple(out_test, temp)
+loss/100
+out_train = encoder_plus(torch.tensor(data_group_in[0:225,:,:],dtype=torch.float32))
+i = 139
+out_train[i,:].mean()
+out_train[i,:].std()
+distance_simple(out_train[i:i+1,:], torch.tensor(y_sort[i:i+1,:],dtype=torch.float32))
+distance_simple(out_train[i:i+1,:], temp)
+
+from sympy import symbols, diff
+# 定义多个符号变量
+x, y = symbols('x y')
+# 定义一个多变量函数
+g = x**2*y + 3*x*y**2 + 2
+# 计算函数关于 x 的偏导数
+g_dx = diff(g, x)
+# 计算函数关于 y 的偏导数
+g_dy = diff(g, y)
+# 打印偏导数
+print("关于 x 的偏导数:", g_dx)
+print("关于 y 的偏导数:", g_dy)
+sum(parameter.numel() for parameter in encoder_plus.parameters())
+
+# 5、模型存储与调用
+torch.save(encoder_plus,'encoder_0124.pth')
+encoder1_plus = torch.load('encoder_0114.pth')
+import sys
+sys.path
+import os
+os.getcwd()
+# 6、eda
+# 6.1 画图
+plot_data = data_group_in.reshape(-1)
+import matplotlib.pyplot as plt
+import seaborn as sns
+plt.hist(plot_data,bins=1000,edgecolor='Black')
+sns.histplot(plot_data, bins=1000, kde=False, edgecolor='black')
+plt.show()
+
+# 6.2 假设检验
+import numpy as np
+from scipy.stats import normaltest
+# 进行K^2检验
+stat, p = normaltest(plot_data)
+# 输出结果
+print('K^2统计量:', stat)
+print('p值:', p)
+# 解释结果
+alpha = 0.05
+if p > alpha:
+    print('数据符合正态分布 (不能拒绝原假设)')
+else:
+    print('数据不符合正态分布 (拒绝原假设)')
+
+# 6.3 画出相同期望方差的正态分布曲线
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+# 计算数据的均值和标准差
+mean = np.mean(plot_data)
+std_dev = np.std(plot_data)
+# 创建直方图
+plt.hist(plot_data, bins=100, density=True, alpha=0.6, color='g', edgecolor='black', label='hist')
+# 生成相同期望和方差的正态分布数据
+xmin, xmax = plt.xlim()
+x = np.linspace(xmin, xmax, 100)
+p = norm.pdf(x, mean, std_dev)
+# 绘制正态分布曲线
+plt.plot(x, p, 'k', linewidth=2, label='normal')
+# 添加标题和标签
+# plt.legend()
+# 显示图表
+plt.show()
+
+# 6.4分段以及频数
+counts,bins_edges = np.histogram(plot_data,bins=100,density=True)
+max(bins_edges)
+min(bins_edges)
+data_group_in.shape
+np.argmax(data_group_in)
+np.argwhere(data_group_in<-31)
+node_list = list(G_stocks[stk])
+num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+stk_list = stocks.iloc[num_list]['code'].to_list()
+stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+stk_list[84]
+node_list[84]
+data_group_in[246,84,700:800]
+# 全部相等的数据，有异常值，标准化后，异常值很大,246,249,84
+tp = np.zeros(1000)
+tp[232] = 1
+tp[672] = 1
+m = tp.mean()
+s = tp.std()
+((tp - m) / s).max()
+# 7、对模型结构进行分析
+parameter_result = []
+for name,parameter in encoder_plus.named_parameters():
+    parameter_result.append((name,parameter.data.shape,parameter.mean().item(),parameter.data.std().item()))
+    print(name,parameter.data.shape,parameter.data)
+# 7.1 对模型的部分参数修改已测试对最终结果的影响力
+encoder_plus = torch.load('encoder_0124.pth')
+with torch.no_grad():
+    b = torch.tensor(data_group_in[0:225,:,:],dtype=torch.float32)
+    c = encoder_plus(b)
+    d = torch.tensor(y_sort[0:225,:],dtype=torch.float32)
+    loss = distance_simple(c, d)
+    print('model loss:',loss)
+
+parameter_weight = []
+for i in range(len(parameter_result)-1):
+    encoder_plus = torch.load('encoder_0124.pth')
+    a = parameter_result[i][0]
+    for name,parameter in encoder_plus.named_parameters():
+        if name== a:
+            mean = parameter.data.mean()
+            std = parameter.data.std()
+            temp = torch.randn_like(parameter.data) * std + mean
+            parameter.data = temp
+            shape = parameter.data.shape
+            break
+    
+    with torch.no_grad():
+        b = torch.tensor(data_group_in[0:225,:,:],dtype=torch.float32)
+        c = encoder_plus(b)
+        d = torch.tensor(y_sort[0:225,:],dtype=torch.float32)
+        loss = distance_simple(c, d)
+        print(i,a,shape,mean,std,loss)
+    parameter_weight.append((i,a,mean.item(),std.item(),loss.item()))
+# 存储list表
+import json
+with open('encoder_plus_parameter_weight.json','w') as file:
+    json.dump(parameter_weight,file)
+with open('encoder_plus_parameter_weight.json','r') as file:
+    t = json.load(file)
+
+# 获取子模块
+for name,children in encoder_plus.named_children():
+    print(name)
+# 模块内容转化
+for element in parameter_weight:
+    element[0]    
+z = encoder_plus.encoder[1].norm[0].w
+print(f'{z}')
+# 1、使用hook函数
+module_name = []
+features_in_hook = []
+features_out_hook = []
+def hook(module, fea_in, fea_out):
+    print("hooker working")
+    module_name.append(module.__class__)
+    features_in_hook.append(fea_in)
+    features_out_hook.append(fea_out)
+    return None
+    
+# handle = encoder_plus.encoder[1].norm[0].register_forward_hook(hook)
+handle = encoder_plus.register_forward_hook(hook)
+b = torch.tensor(data_group_in[0:2,:,:],dtype=torch.float32)
+y = encoder_plus(b)
+ 
+# 得到hook的输出
+print(module_name)
+print(features_in_hook)
+print(features_in_hook[0][0].shape)
+a = features_in_hook[0][0]
+print(features_out_hook) 
+print(features_out_hook[0].shape)
+# 将hook移除
+handle.remove()
+
+# 2、使用hook函数
+# 用于存储每一层的输入和输出
+input_dict = {}
+output_dict = {}
+handles = []
+# 定义一个hook函数来记录输入和输出
+def hook_fn(module, input, output):
+    input_dict[module] = input
+    output_dict[module] = output
+
+# 注册hook到每一层
+for name, module in encoder_plus.named_modules():
+    handle = module.register_forward_hook(hook_fn)
+    handles.append(handle)
+# 前向传播
+encoder_plus(b)
+
+# 打印每一层的输入和输出
+for module, input in input_dict.items():
+    print(f"模块 {module} 的输入: {input}")
+for module, output in output_dict.items():
+    print(f"模块 {module} 的输出: {output}")
+for handle in handles:
+    handle.remove()
+
+# 具体的处理方式，先将模型和参数对应起来，然后选定模型参数，挂钩子，推理打印输入输出，更改参数打印输入输出
+# 会重复选用
+for i in parameter_weight:
+    print(i)
+
+
+# 3, 'encoder.0.norm.1.b',
+handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+encoder_plus(b)
+# 打印每一层的输入和输出
+for module, input in input_dict.items():
+    print(f"模块 {module} 的输入: {input}")
+for module, output in output_dict.items():
+    print(f"模块 {module} 的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+handle.remove()
+# 3.1 hook,调整前，调整后
+encoder_plus = torch.load('encoder_0124.pth')
+input_dict = {}
+output_dict = {}
+handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+encoder_plus(b)
+for module, output in output_dict.items():
+    print(f"模块 {module} 的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+handle.remove()
+a = 'encoder.0.norm.1.b'
+for name,parameter in encoder_plus.named_parameters():
+    if name== a:
+        mean = parameter.data.mean()
+        std = parameter.data.std()
+        temp = torch.randn_like(parameter.data) * std + mean
+        parameter.data = temp
+        break
+input_dict = {}
+output_dict = {}
+handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+encoder_plus(b)
+for module, output in output_dict.items():
+    print(f"模块 {module} 的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+handle.remove()
+# 3.2 将以上内容函数化
+number = ['0','1','2','3','4','5','6','7']
+# code = parameter_weight[0][1]
+code_list = []
+for i in parameter_weight:
+    code = i[1]
+    code_li = code.split(".")
+    result = 'encoder_plus'
+    for j in code_li[0:-1]:
+        if j in number:
+           result += ('[' + j + ']') 
+        else:
+            result += ('.' + j) 
+    result += '.register_forward_hook(hook_fn)'
+    code_list.append(result)
+    
+# mo = code_list[0]    
+def evaluate_part_model(parameter_weight,code_list):
+    for i,(pa,mo) in enumerate(zip(parameter_weight,code_list)):
+        encoder_plus = torch.load('encoder_0124.pth')
+        input_dict = {}
+        output_dict = {}
+        order = 'handle = ' + mo
+        exec(order)
+        # handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+        encoder_plus(b)
+        for module, output in output_dict.items():
+            print(f"{i} 模块: {module} \n  参数：{pa[1]} \n  loss:{pa[4]:.6f}\n  修改前的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+        handle.remove()
+        a = pa
+        for name,parameter in encoder_plus.named_parameters():
+            if name== a:
+                mean = parameter.data.mean()
+                std = parameter.data.std()
+                temp = torch.randn_like(parameter.data) * std + mean
+                parameter.data = temp
+                break
+        out = output_dict
+        input_dict = {}
+        output_dict = {}
+        # handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+        exec(order)
+        encoder_plus(b)
+        for module, output in output_dict.items():
+            print(f"  修改后的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+            print(f"  欧几里得距离: {torch.norm(output - out[module],p=2)}")
+            print(f"  最小均方误差: {F.mse_loss(output , out[module])}")
+        handle.remove()
+    
+# 逐一检查
+encoder_plus = torch.load('encoder_0124.pth') 
+  
+for name,parameter in encoder_plus.named_parameters():
+    if name=='encoder.0.norm.0.w':
+        print(parameter.data,parameter.data.mean(),parameter.data.std())
+        origin = parameter.data
+        mean = parameter.data.mean()
+        std = parameter.data.std()
+        temp = torch.randn_like(parameter.data) * std + mean
+        parameter.data = temp
+        break
+        # parameter.data = temp
+        temp
+
+
+encoder_plus = torch.load('encoder_0124.pth')        
+input_dict = {}
+output_dict = {}
+handle = encoder_plus.encoder[0].norm[0].register_forward_hook(hook_fn)
+encoder_plus(b)
+for module, output in output_dict.items():
+    print(f"模块 {module} 的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+handle.remove()    
+output = output_dict
+a = 'encoder.0.norm.0.w'
+pa_list=[]
+for name,parameter in encoder_plus.named_parameters():
+    if name== a:
+        mean = parameter.data.mean()
+        std = parameter.data.std()
+        temp = torch.randn_like(parameter.data) * std + mean
+        orgin = parameter.data
+        parameter.data = temp
+        pa_list.append((orgin,temp))
+        break
+input_dict = {}
+output_dict = {}
+handle = encoder_plus.encoder[0].norm[0].register_forward_hook(hook_fn)
+encoder_plus(b)
+for module, out in output_dict.items():
+    print(f"模块 {module} 的输出: {out.shape},mean: {out.mean().item():.6f},std: {out.std().item():.6f}")
+    print(f"  欧几里得距离: {torch.norm(out - output[module],p=2)}")
+    print(f"  最小均方误差: {F.mse_loss(out , output[module])}")
+handle.remove()
+
+
+# 将数值记录下来并逐一检查
+# 之前pa没有加下标，差异是来源于dropout的随机失活
+out_list = []
+for i,(pa,mo) in enumerate(zip(parameter_weight,code_list)):
+    encoder_plus = torch.load('encoder_0124.pth')
+    input_dict = {}
+    output_dict = {}
+    order = 'handle = ' + mo
+    exec(order)
+    # handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+    encoder_plus(b)
+    for module, output in output_dict.items():
+        print(f"{i} 模块: {module} \n  参数：{pa[1]} \n  loss:{pa[4]:.6f}\n  修改前的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+    handle.remove()
+    a = pa[1]
+    for name,parameter in encoder_plus.named_parameters():
+        if name==a:
+            mean = parameter.data.mean()
+            std = parameter.data.std()
+            temp = torch.randn_like(parameter.data) * std + mean
+            orgin_data = parameter.data
+            # print(temp.shape)
+            out_list.append((orgin_data,temp))
+            parameter.data = temp
+            break
+    out = output_dict
+    input_dict = {}
+    output_dict = {}
+    # handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+    exec(order)
+    encoder_plus(b)
+    for module, output in output_dict.items():
+        print(f"  修改后的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+        print(f"  欧几里得距离: {torch.norm(output - out[module],p=2)}")
+        print(f"  最小均方误差: {F.mse_loss(output , out[module])}")
+    handle.remove()
+out_list[0][0]
+# 数据分析，画图分析 
+
+for i,j in input_dict.items():
+    key = i
+key = 'layernorm()'
+input = input_dict[key]
+it = input[0]
+out_1 = output[key]
+out_2 = output_dict[key]
+print(out_1.mean().item(),out_1.std().item(),out_2.mean().item(),out_2.std().item())
+org = pa_list[0][0]
+temp = pa_list[0][1]
+plt.hist(org,bins=100)
+plt.hist(temp,bins=100,alpha=0.6)
+plt.show()
+it.shape
+org.std()
+temp.std()
+it.std()
+it.mean()
+F.mse_loss(it*org,it*temp)
+(org - temp).std()
+(org - temp).mean()
+plt.hist(org-temp,bins=100)
+plt.show
+
+# 计算每个模块的相关统计参数和图像
+num = 32
+def minus_analysis(num):
+    encoder_plus = torch.load('encoder_0124.pth') 
+    parameter = parameter_weight[num][1] 
+    code = code_list[num] 
+    # return code
+    code = 'handle = ' + code 
+    input_dict = {}
+    output_dict = {}
+    exec(code)
+    encoder_plus(b)
+    for module, output in output_dict.items():
+        print(f"模块 {module} 的输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f}")
+    handle.remove()    
+    output = output_dict
+    a = parameter
+    pa_list=[]
+    for name,parameter in encoder_plus.named_parameters():
+        if name== a:
+            mean = parameter.data.mean()
+            std = parameter.data.std()
+            temp = torch.randn_like(parameter.data) * std + mean
+            orgin = parameter.data
+            parameter.data = temp
+            pa_list.append((orgin,temp))
+            break
+    input_dict = {}
+    output_dict = {}
+    exec(code)
+    encoder_plus(b)
+    for module, out in output_dict.items():
+        print(f"模块 {module} 的输出: {out.shape},mean: {out.mean().item():.6f},std: {out.std().item():.6f}")
+        print(f"  欧几里得距离: {torch.norm(out - output[module],p=2)}")
+        print(f"  最小均方误差: {F.mse_loss(out , output[module])}")
+    handle.remove()
+    keys = []
+    for i,j in input_dict.items():
+        keys.append(i)
+    key = keys[0]
+    input_data = input_dict[key][0]
+    output_data_1 = output[key]
+    output_data_2 = output_dict[key] 
+    matrix_1 = pa_list[0][0]
+    matrix_2 = pa_list[0][1]
+    input_mean = input_data.mean().item()
+    input_std = input_data.std().item()
+    output_data_1_mean = output_data_1.mean().item()
+    output_data_1_std = output_data_1.std().item()
+    output_data_2_mean = output_data_2.mean().item()
+    output_data_2_std = output_data_2.std().item()
+    output_eulid = torch.norm(output_data_1-output_data_2,p=2).item()
+    output_mse = F.mse_loss(output_data_1,output_data_2).item()
+    matrix_1_mean = matrix_1.mean().item()
+    matrix_2_mean = matrix_2.mean().item()
+    matrix_1_std = matrix_1.std().item()
+    matrix_2_std = matrix_2.std().item()
+    minus = matrix_1 - matrix_2
+    minus_mean = minus.mean().item()
+    minus_std = minus.std().item()
+    res = {'input_data' : input_data,'output_data_1' : output_data_1,
+           'output_data_2' : output_data_2,'matrix_1' : matrix_1,
+           'matrix_2' : matrix_2,'input_mean' :input_mean,'input_std' : input_std,
+           'output_data_1_mean' : output_data_1_mean,'output_data_1_std' : output_data_1_std,
+           'output_data_2_mean' : output_data_2_mean,'output_data_2_std' : output_data_2_std,
+           'matrix_1_mean' : matrix_1_mean,'matrix_1_std' : matrix_1_std,
+           'matrix_2_mean' : matrix_2_mean,'matrix_2_std' : matrix_2_std,
+           'minus' : minus,'minus_mean' : minus_mean,'minus_std' : minus_std,
+           'output_eulid' : output_eulid,'output_mse' : output_mse,
+           }
+    return res
+
+# num=4
+res['output_data_1'].shape
+pp = minus_analysis(num)
+
+# 对所有的层的输入输出进行分析
+for i,(pa,mo) in enumerate(zip(parameter_weight,code_list)):
+    encoder_plus = torch.load('encoder_0124.pth')
+    input_dict = {}
+    output_dict = {}
+    order = 'handle = ' + mo
+    exec(order)
+    # handle = encoder_plus.encoder[0].norm[1].register_forward_hook(hook_fn)
+    encoder_plus(b)
+    for module, output in output_dict.items():
+        print(f"{i} 模块: {module} \n   参数：{pa[1]} \n   loss:{pa[4]:.6f}\n  \
+ 输入: {input_dict[module][0].shape},mean:{input_dict[module][0].mean().item():.6f},std:{input_dict[module][0].std().item():.6f} \n \
+  输出: {output.shape},mean: {output.mean().item():.6f},std: {output.std().item():.6f} \
+              ")
+    handle.remove()
+    a = pa[1]
+    for name,parameter in encoder_plus.named_parameters():
+        if name==a:
+            mean = parameter.data.mean()
+            std = parameter.data.std()
+            print(f'   参数: {parameter.data.shape},mean:{mean:.6f},std:{std:.6f}')
+            break
+
+# 读入字典的方法
+model = torch.load('encoder_0124.pth')
+state_dict = model.state_dict()
+pretrained_p = state_dict.keys()
+for key in pretrained_p:
+    print(key)
+    print(state_dict[key].shape)
+
+# 6模块和22
+
