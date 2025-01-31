@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jan  3 20:04:01 2025
+
+@author: qinpeng
+"""
+
+import pandas as pd
+import akshare as ak
+import numpy as np
+from itertools import product
+import networkx as nx
+# 1、基础准备，生成stocks,stocks_market_2024,stocks_embed,dot_matrix_norm,G_stocks,stocks_group,
+# stocks_degree
+# 导入股票列表，存入stocks
+# 导入以2024年数据为基础的股票嵌入向量，存入stocks_embed
+stocks = pd.read_csv(r'/Users/qinpeng/Desktop/python项目/天软/stock.csv')
+stocks_embed = np.load(r'/Users/qinpeng/Desktop/python项目/天软/embedding.npy')
+stocks.drop(columns='Unnamed: 0',inplace=True)
+# 导入原始的行情数据，存入stocks_market_2024_orig
+path = '/Users/qinpeng/Desktop/python项目/天软/classifaction.csv'
+stocks_market_2024_orig = pd.read_csv(path)
+date_ser = stocks_market_2024_orig['日期'].unique()
+code_ser = stocks_market_2024_orig['股票代码'].unique()
+# 生成所有股票和日期的组合
+combinations = list(product(date_ser, code_ser))
+# 将组合转换为 DataFrame，并且与之前的表联结在一起
+# 数据清理之后的行情数据存入stocks_market_2024
+result_df = pd.DataFrame(combinations, columns=['日期', '股票代码'])
+stocks_market_2024 = pd.merge(result_df, stocks_market_2024_orig, on=['日期', '股票代码'], how='left').sort_values(by=['股票代码','日期'],ascending=[True,True]).reset_index()
+code_li = stocks_market_2024.columns[2:].to_list()
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[i,'累计涨跌幅']):
+       if i>0:
+          if stocks_market_2024.loc[i,'股票代码'] == stocks_market_2024.loc[i-1,'股票代码']:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i-1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[i,code_li[2:]]  = stocks_market_2024.loc[i+1,code_li[2:]]
+length = len(stocks_market_2024) - 1
+for i in stocks_market_2024.index:
+    if pd.isna(stocks_market_2024.loc[length-i,'累计涨跌幅']):
+       if length-i<length:
+          if stocks_market_2024.loc[length-i,'股票代码'] == stocks_market_2024.loc[length-i+1,'股票代码']:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i+1,code_li[2:]]
+              
+          else:
+              stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+              
+       else:
+            stocks_market_2024.loc[length-i,code_li[2:]]  = stocks_market_2024.loc[length-i-1,code_li[2:]]
+# 计算点积，最终标准化点积数据存入dot_mat_norm
+dot_mat = stocks_embed @ stocks_embed.T
+liag = [1/np.sqrt(stocks_embed[i,:] @ stocks_embed.T[:,i]) for i in range(stocks_embed.shape[0])]
+liag_mat = np.diag(liag)
+dot_mat_norm = liag_mat @ dot_mat @ liag_mat 
+np.fill_diagonal(dot_mat_norm, -1000)
+# 生成点积图，G_stocks
+temp = np.argmax(dot_mat_norm,1)
+edges = [(i,temp[i]) for i in range(len(temp))]
+edges_stk = [(stocks.loc[element[0],'name'],stocks.loc[element[1],'name']) for element in edges]
+G_stocks = nx.Graph()
+G_stocks.add_nodes_from(stocks['name'].to_list())
+G_stocks.add_edges_from(edges_stk)
+# 依据图连接对股票进行分类，存入stocks_group
+connected_stocks = list(nx.connected_components(G_stocks))
+stocks_group = [list(component) for component in connected_stocks]
+# 导出每只股票的度
+degree_list = G_stocks.degree()
+sorted_nodes = sorted(degree_list, key=lambda x: x[1], reverse=True)
+stocks_degree = pd.DataFrame(sorted_nodes, columns=['Node', 'Degree'])
+
+num = stocks[stocks['name']=='欧普康视'].index.to_list()[0]
+stocks_embed[num,:]
+num_code = str(stocks.loc[num,'code'])+'.SZ'
+
+
+# 导出某只股票的临近点
+stk = '欧普康视'
+num = stocks[stocks['name']==stk].index.to_list()[0]
+node_list = list(G_stocks[stk])
+# len(node_list)
+num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+stk_list = stocks.iloc[num_list]['code'].to_list()
+stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+
+
+
+from WindPy import *
+
+
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+
+
+fields="open,high,low,close,pct_chg"
+# 导出某一天的临近节点涨跌幅时间序列图
+stock_market_0103= pd.DataFrame()
+for i in stk_list:
+    error,df_temp = w.wsi(i, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+    if len(df_temp) != 242:
+        print(i,len(df_temp))
+        df_temp = pd.DataFrame(np.zeros((242,5)),columns=["open","high","low","close","pctchange"])
+    stock_market_0103= pd.concat([stock_market_0103,df_temp])
+error,node_market = w.wsi(num_code, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+node_pctchange = np.array(node_market['pctchange'])  
+stock_market_0103_np = np.array(stock_market_0103['pctchange']) 
+stock_market_0103_np = stock_market_0103_np.reshape(-1,242)
+# 与节点的当天的点积
+num_norm = np.array(1/np.sqrt(node_pctchange @ node_pctchange.T))
+group_norm = np.diag([1/np.sqrt(stock_market_0103_np[i,:] @ stock_market_0103_np[i,:].T) for i in range(stock_market_0103_np.shape[0])])
+dot_matrix_day_0103 = num_norm * node_pctchange @ stock_market_0103_np.T @ group_norm
+
+
+# 数据分析
+stk_list[26]
+num_list
+stock_market_0103_np[26,:]
+dot_mat_norm
+dot_matrix_day_0103_o = dot_mat_norm[num,num_list]
+cor_pairs = [(dot_matrix_day_0103[i],dot_matrix_day_0103_o[i]) for i in range(len(dot_matrix_day_0103))]
+np.argmax(stock_market_0103_np,axis=1).shape
+stock_market_0103_np[10]
+stk_list[10]
+np.bincount(np.argmax(stock_market_0103_np,axis=0))
+node_list
+num_list
+stk_list
+stock_market_0103_np.shape
+np.triu(np.ones((242,242)))
+# 计算当天的累计值
+stock_market_0103_np_cum = stock_market_0103_np @ np.triu(np.ones((242,242)))
+node_pctchange_cum = node_pctchange @ np.triu(np.ones((242,242)))
+num_norm_cum = np.array(1/np.sqrt(node_pctchange_cum @ node_pctchange_cum.T))
+group_norm_cum = np.diag([1/np.sqrt(stock_market_0103_np_cum[i,:] @ stock_market_0103_np_cum[i,:].T) for i in range(stock_market_0103_np_cum.shape[0])])
+dot_matrix_day_0103_cum = num_norm_cum * node_pctchange_cum @ stock_market_0103_np_cum.T @ group_norm_cum
+dot_mat_norm[num,num_list]
+stk_list[-1]
+np.argwhere(dot_matrix_day_0103_cum<0)
+stk_list[18]
+stocks.iloc[num]
+# 尝试导出当天所有的高频数据，但是出了问题,数据提取量超限
+stock_market_0103_all= pd.DataFrame()
+stk_list_all = [str(i).zfill(6)+'.SZ' if i < 600000 else str(i).zfill(6)+'.SH' for i in stocks['code'].to_list()]
+for i in stk_list_all:
+    error,df_temp = w.wsi(i, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+    if len(df_temp) != 242:
+        print(i,len(df_temp))
+        df_temp = pd.DataFrame(np.zeros((242,5)),columns=["open","high","low","close","pctchange"])
+    stock_market_0103_all= pd.concat([stock_market_0103_all,df_temp])
+stock_market_0103_all[stock_market_0103_all['open']==0].shape
+
+#
+stk_temp = '688718.SH'
+w.wsi(stk_temp, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+
+#0.0495222 南微医学
+np.argwhere(dot_matrix_day_0103_cum<=0.05)
+stk_list[25]
+stk_list[2]
+stk_list[8]
+
+# 获取开盘价和收盘价
+error,open_data=w.wsd(stk_list,
+                   "open" , 
+                   "2025-01-02", "2025-01-03", usedf=True)
+error,close_data=w.wsd(stk_list,
+                   "close" , 
+                   "2025-01-02", "2025-01-03", usedf=True) 
+final_data = pd.concat([open_data,close_data]) 
+open_close_data = (final_data.iloc[1] - final_data.iloc[2])/final_data.iloc[2]
+neg_num = np.argwhere(open_close_data.values<0)
+pos_num = np.argwhere(open_close_data.values>0.02)
+stock_market_0103_np_cum[neg_num,-1].mean()
+stock_market_0103_np_cum[:,-1].mean()
+close_open_data = (final_data.iloc[3] - final_data.iloc[1])/final_data.iloc[3]
+close_open_data.values[neg_num].mean()
+close_open_data.values[:].mean()
+close_open_data.values[pos_num].mean()
+
+# 建立一个框架，在这个框架之下，对每组数据的高开和低开数据进行相应的分析
+
+# 导出每只股票的度，从股票的度中选择需要的点
+degree_list = G_stocks.degree()
+sorted_nodes = sorted(degree_list, key=lambda x: x[1], reverse=True)
+stocks_degree = pd.DataFrame(sorted_nodes, columns=['Node', 'Degree'])
+# 点的相关信息
+stk = '恒顺醋业'
+num = stocks[stocks['name']==stk].index.to_list()[0]
+num_code = str(stocks.loc[num,'code']).zfill(6)+'.SZ' if stocks.loc[num,'code']<600000 else str(stocks.loc[num,'code']).zfill(6)+'.SH' 
+
+# 导出某只股票的临近点
+num = stocks[stocks['name']==stk].index.to_list()[0]
+node_list = list(G_stocks[stk])
+num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+stk_list = stocks.iloc[num_list]['code'].to_list()
+stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+
+# 导出列表股票中当日数据
+from WindPy import *
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+
+fields="open,high,low,close,pct_chg"
+# 导出某一天的临近节点涨跌幅时间序列图
+stock_market_0103= pd.DataFrame()
+for i in stk_list:
+    error,df_temp = w.wsi(i, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+    if len(df_temp) != 242:
+        print(i,len(df_temp))
+        df_temp = pd.DataFrame(np.zeros((242,5)),columns=["open","high","low","close","pctchange"])
+    stock_market_0103= pd.concat([stock_market_0103,df_temp])
+error,node_market = w.wsi(num_code, fields, '20250103 09:30:00', '20250103 15:00:00','Fill=Previous',usedf=True)
+node_pctchange = np.array(node_market['pctchange'])  
+stock_market_0103_np = np.array(stock_market_0103['pctchange']) 
+stock_market_0103_np = stock_market_0103_np.reshape(-1,242)
+# 与节点的当天的点积
+num_norm = np.array(1/np.sqrt(node_pctchange @ node_pctchange.T))
+group_norm = np.diag([1/np.sqrt(stock_market_0103_np[i,:] @ stock_market_0103_np[i,:].T) for i in range(stock_market_0103_np.shape[0])])
+dot_matrix_day_0103 = num_norm * node_pctchange @ stock_market_0103_np.T @ group_norm
+
+# 计算累计相关系数
+stock_market_0103_np_cum = stock_market_0103_np @ np.triu(np.ones((242,242)))
+node_pctchange_cum = node_pctchange @ np.triu(np.ones((242,242)))
+num_norm_cum = np.array(1/np.sqrt(node_pctchange_cum @ node_pctchange_cum.T))
+group_norm_cum = np.diag([1/np.sqrt(stock_market_0103_np_cum[i,:] @ stock_market_0103_np_cum[i,:].T) for i in range(stock_market_0103_np_cum.shape[0])])
+dot_matrix_day_0103_cum = num_norm_cum * node_pctchange_cum @ stock_market_0103_np_cum.T @ group_norm_cum
+
+# 获取开盘价和收盘价，并计算高开和低开股票的统计数据
+error,open_data=w.wsd(stk_list,
+                   "open" , 
+                   "2025-01-02", "2025-01-03", usedf=True)
+error,close_data=w.wsd(stk_list,
+                   "close" , 
+                   "2025-01-02", "2025-01-03", usedf=True) 
+final_data = pd.concat([open_data,close_data]) 
+open_close_data = (final_data.iloc[1] - final_data.iloc[2])/final_data.iloc[2]
+neg_num = np.argwhere(open_close_data.values<0)
+pos_num = np.argwhere(open_close_data.values>0.004)
+stock_market_0103_np_cum[neg_num,-1].mean()
+stock_market_0103_np_cum[:,-1].mean()
+close_open_data = (final_data.iloc[3] - final_data.iloc[1])/final_data.iloc[1]
+close_open_data.values[neg_num].mean()
+close_open_data.values[:].mean()
+close_open_data.values[pos_num].mean()
+np.column_stack((open_close_data,close_open_data))
+oc_df = pd.DataFrame(np.column_stack((open_close_data,close_open_data)),columns=['开盘涨','当天涨'])
+# 市值是多少？
+error,stk_features = w.wss(stk_list, "industry_sw_2021,  ev,  mkt_cap_ard,compindex2",  "tradeDate=20250106;industryType=1;unit=1;",usedf=True)
+stk_features = stk_features.reset_index()
+stk_features['开盘涨'] = oc_df['开盘涨']
+stk_features['当天涨'] = oc_df['当天涨']
+
+error,data = w.wss("000001.SZ", "ev,  mkt_cap_ard,  compindex2", "unit=1;tradeDate=20250107;index=1;",usedf=True)
+# 将所有的内容做成函数
+# 导出列表股票中当日数据
+from WindPy import *
+# wind数据接口联结
+ret = w.start()
+print(ret)
+ret = w.isconnected()
+print(ret)
+def open_close_stradegy(stk,begt,endt,p_thres,n_thres):
+    num = stocks[stocks['name']==stk].index.to_list()[0]
+    num_code = str(stocks.loc[num,'code']).zfill(6)+'.SZ' if stocks.loc[num,'code']<600000 else str(stocks.loc[num,'code']).zfill(6)+'.SH' 
+    
+    # 导出某只股票的临近点
+    num = stocks[stocks['name']==stk].index.to_list()[0]
+    node_list = list(G_stocks[stk])
+    num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+    stk_list = stocks.iloc[num_list]['code'].to_list()
+    stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+    fields="open,high,low,close,pct_chg"
+    
+    # 获取开盘价和收盘价，并计算高开和低开股票的统计数据
+    error,open_data=w.wsd(stk_list,
+                       "open" , 
+                       begt, endt, usedf=True)
+    error,close_data=w.wsd(stk_list,
+                       "close" , 
+                       begt, endt, usedf=True) 
+    final_data = pd.concat([open_data,close_data]) 
+    open_close_data = (final_data.iloc[1] - final_data.iloc[2])/final_data.iloc[2]
+    neg_num = np.argwhere(open_close_data.values<n_thres)
+    pos_num = np.argwhere(open_close_data.values>p_thres)
+    # stock_market_0103_np_cum[neg_num,-1].mean()
+    # stock_market_0103_np_cum[:,-1].mean()
+    close_open_data = (final_data.iloc[3] - final_data.iloc[1])/final_data.iloc[1]
+    neg_mean = close_open_data.values[neg_num].mean()
+    all_mean = close_open_data.values[:].mean()
+    pos_mean = close_open_data.values[pos_num].mean()
+    # np.column_stack((open_close_data,close_open_data))
+    oc_df = pd.DataFrame(np.column_stack((open_close_data,close_open_data)),columns=['开盘涨','当天涨'])
+    # 市值是多少？
+    error,stk_features = w.wss(stk_list, "industry_sw_2021,  ev,  mkt_cap_ard",  "tradeDate=20250106;industryType=1;unit=1;",usedf=True)
+    stk_features = stk_features.reset_index()
+    stk_features['开盘涨'] = oc_df['开盘涨']
+    stk_features['当天涨'] = oc_df['当天涨']
+    dot = dot_mat_norm[num,num_list]
+    stk_features['相关性'] = dot
+    return(neg_mean,pos_mean,all_mean,stk_features)
+begt = '2025-01-07'
+endt = '2025-01-08'
+stk = '恒顺醋业'
+p_thres = 0.004
+n_thres = 0
+a = open_close_stradegy(stk, begt, endt, p_thres, n_thres)
+result = []
+for i in range(30):
+    stk = stocks_degree.loc[i,'Node']
+    a = open_close_stradegy(stk, begt, endt, p_thres, n_thres)
+    result.append(a)
+count = 0
+for i in result:
+    if i[0]>i[1]:
+        count += 1      
+    print(i[0],i[1])
+i = result[3]
+# 相关系数如果低于0.75 相关性必须大于0.75
+for j,i in enumerate(result):
+    i_075 = i[3][i[3]['相关性']>0.75]
+    print(j,stocks_degree.loc[j,'Node'],i_075[i_075['开盘涨']>0.04]['当天涨'].mean(),
+    i_075[i_075['开盘涨']<0.00]['当天涨'].mean())
+    
+print(count)
+print(len(result))
+
+result[24][3]
+
+stocks_degree.iloc[num]
+len(G_stocks['中原内配'])
+result[5][3]
+stk = '北特科技'
+num = stocks[stocks['name']==stk].index.to_list()[0]
+dot_mat_norm[num,num_list]
+sorted(dot_mat_norm[3837,:],reverse=True)[0:30]
+stocks_degree
+G_stocks[stk]
+# 调用deepseek，的api接口
+from openai import OpenAI
+
+# print(openai.__version__)
+client = OpenAI(api_key="sk-1c27d9436208472cbc4d02b9ca2e3946", base_url="https://api.deepseek.com")
+
+response = client.chat.completions.create(
+    model="deepseek-chat",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant"},
+        {"role": "user", "content": "登康口腔的最新股价？"},
+    ],
+    stream=False
+)
+
+print(response.choices[0].message.content)
+
+# 相关系数如果低于0.8，
+fields="open,high,low,close,pct_chg"
+stk_list_all = [str(stock).zfill(6)+'.SH' if stock > 600000 else str(stock).zfill(6)+'.SZ' for stock in stocks['code'].to_list()]
+error,open_data=w.wsd(stk_list_all[0:3000],
+                   "open" , 
+                   "2025-01-02", "2025-01-03", usedf=True)
+error,close_data=w.wsd(stk_list,
+                   "close" , 
+                   "2025-01-02", "2025-01-03", usedf=True) 
+
+error,data = w.wsi("000002.SZ", "open,high,low,close,amt", "2025-01-10 09:00:00", "2025-01-10 10:58:07", "",usedf=True)
+data_np = np.array(data)
+data_np.shape
+import torch 
+data_pt = torch.tensor(data_np)
+dir(data_pt)
+data_pt.requires_grad
+
+# 数据预处理
+error,data = w.wsi("000002.SZ", "open,high,low,close,amt", "2024-12-02 09:00:00", "2025-01-09 15:00:00",  "Fill=Previous",usedf=True)
+a = data.reset_index()
+days = 242
+data_np = np.array(data)
+data_np_days = data_np.reshape(1,-1,242,5)
+# data_np.shape
+data_val_np = data_np_days[:,:,:,0:4]
+data_vol_np = data_np_days[:,:,:,4:]
+val_mean = np.mean(data_val_np,axis=(-2,-1),keepdims=True)
+val_var = np.std(data_val_np,axis=(-2,-1),keepdims=True)
+data_val_np_norm = (data_val_np - val_mean)/val_var
+
+
+vol_mean = np.mean(data_vol_np,axis=(-2,-1),keepdims=True)
+vol_var = np.std(data_vol_np,axis=(-2,-1),keepdims=True)
+data_vol_np_norm = (data_vol_np - vol_mean)/vol_var
+
+data_np_days_norm = np.concatenate((data_val_np_norm,data_vol_np_norm),axis=-1)
+# stocks_degree
+
+stk = '今飞凯达'
+num = stocks[stocks['name']==stk].index.to_list()[0]
+node_list = list(G_stocks[stk])
+num_list = [stocks[stocks['name']==node].index.to_list()[0] for node in node_list]
+stk_list = stocks.iloc[num_list]['code'].to_list()
+stk_list = [str(item).zfill(6)+'.SH' if item >=600000 else str(item).zfill(6)+'.SZ' for item in stk_list ]
+fields="open,high,low,close,amt"
+data_group = pd.DataFrame()
+for stock in stk_list:
+    error,data_temp = w.wsi(stock, "open,high,low,close,amt", "2024-12-02 09:00:00", "2025-01-09 15:00:00",  "Fill=Previous",usedf=True)
+    data_temp['stk'] = stock
+    data_group = pd.concat([data_group,data_temp])
+
+data_group_np = np.array(data_group)
+data_group_np_days = data_group_np.reshape(31,-1,242,6)
+data_group_np_days_val = data_group_np_days[:,:,:,0:4].astype(float)
+data_group_np_days_vol = data_group_np_days[:,:,:,4:5].astype(float)
+data_group_val_mean = np.mean(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+data_group_vol_mean = np.mean(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+data_group_val_std = np.std(data_group_np_days_val,axis=(-2,-1),keepdims=True)
+data_group_vol_std = np.std(data_group_np_days_vol,axis=(-2,-1),keepdims=True)
+data_group_val_norm = (data_group_np_days_val - data_group_val_mean)/data_group_val_std
+data_group_vol_norm = (data_group_np_days_vol - data_group_vol_mean)/data_group_vol_std
+data_group = np.concatenate((data_group_val_norm,data_group_vol_norm),axis=-1)
+data_group = np.transpose(data_group,axes=(1,0,2,3))
+data_group_in = data_group[0:-1,:,:,:]
+data_group_out = data_group[1:,:,:,:]
+y_list = []
+y_np = np.zeros((27,31))
+data_group_np_days_val = np.transpose(data_group_np_days_val,axes=(1,0,2,3))
+for i in range(27):
+    for j in range(31):
+        y_np[i,j] = (data_group_np_days_val[i+1,j,0,0]-data_group_np_days_val[i,j,241,3])/data_group_np_days_val[i,j,241,3]
+y_indices = np.argsort(y_np,axis=-1) 
+y_indices.shape
+y_indices_pt = torch.tensor(y_indices,dtype=torch.float)
+      
+import torch.nn as nn
+class args(nn.Module):
+    def __init__(self,n):
+        super(args,self).__init__()
+        self.fc = nn.Linear(n,n)
+    def forward(self,x):
+        x = self.fc(x)
+        output = torch.argsort(x, -1)
+        return(output)
+x = torch.randn(5,5)    
+m = args(5)
+m(x)
+m.backward
+
+class args(nn.Module):
+    def __init__(self,n):
+        super(args,self).__init__()
+        self.fc = nn.Linear(n,n)
+    def forward(self,x):
+        x = self.fc(x)
+        return x
+x = torch.randn(5,5)    
+m = args(5)
+y = m(x)
+loss = torch.mean(y)-0.5
+loss.backward
+'''
+input = torch.randn(3, 5, requires_grad=True)
+target = torch.empty(3, dtype=torch.long).random_(5)
+'''
+
+'''    
+210056 / 6776
+len(stk_list)
+np.mean(data_val_np_norm,axis=(-2,-1))
+np.std(data_val_np_norm,axis=(-2,-1))
+np.mean(data_val_np_norm,axis=(-2,-1),keepdims=True)
+np.mean(data_vol_np_norm,axis=(-2,-1))
+np.std(data_vol_np_norm,axis=(-2,-1))
+'''
+
+def distance(x,y):
+    loss = 0
+    for i in range(len(x)):
+        for j in range(i+1,len(x)):
+            if y[i] >= y[j]:
+                if x[i]>= x[j]:
+                   loss += 0
+                   # print(y[i],y[j],x[i],x[j],0,loss)
+                else:
+                   loss += x[j] - x[i]
+                   # print(y[i],y[j],x[i],x[j],x[j] - x[i],loss)
+            else:
+                if x[i]<x[j]:
+                   loss += 0
+                   # print(y[i],y[j],x[i],x[j],0,loss)
+                else:
+                   loss += x[i] - x[j]
+                   # print(y[i],y[j],x[i],x[j],x[i] - x[j],loss)
+    return(2*loss/(len(x)*(len(x)-1)))
+
+def distance_simple(x,y):
+    loss = 0
+    for i in range(len(x)):
+        for j in range(i+1,len(x)):
+            loss += np.maximum(-(x[i] - x[j])*(y[i]-y[j])/np.abs(y[i]-y[j]),0)
+            
+    return (2*loss/(len(x)*(len(x)-1)))
+x = [0.6,0.3,2.5,-0.1,7]
+y = [4,1,0,2,3]
+distance_simple(x, y)
+distance(x,y)
+
+x_pt = torch.tensor(x)
+y_pt = torch.tensor(y)    
+distance(x_pt,y_pt)   
+
+class lin(nn.Module):
+    def __init__(self,n):
+        super(lin,self).__init__()
+        self.fc = nn.Linear(n,n)
+    def forward(self,x):
+        return self.fc(x)
+model = lin(5) 
+tgt = model(x_pt)
+loss = distance(tgt,y_pt)
+
+loss.backward
+tgt.requires_grad   
+y_pt.requires_grad
+[parameter for parameter in model.parameters()]
