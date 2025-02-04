@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Feb  1 10:55:21 2025
+
+@author: qinpeng
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import numpy as np
+# 1、模型定义
+def self_attention(q,k,v):
+    dim = torch.tensor(q.size(-1))
+    weight = q @ k.transpose(-2,-1)/torch.sqrt(dim)
+    weight_prob = F.log_softmax(weight,dim=-1)
+    return weight_prob @ v
+class multi_attention(nn.Module):
+    def __init__(self,head,embed_dim,dropout):
+        super(multi_attention,self).__init__()
+        self.fc = nn.ModuleList(nn.Linear(embed_dim, embed_dim) for _ in range(4))
+        self.head_dim = embed_dim // head
+        self.head = head
+        self.embed_dim = embed_dim
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,q,k,v):
+        batch_num = q.size(0)
+        q,k,v = [ l(x).view(batch_num,-1,self.head,self.head_dim).transpose(1,2) for l,x in zip(self.fc,(q,k,v))]
+        x = self_attention(q, k, v)
+        x = x.transpose(1,2).contiguous().view(batch_num,-1,self.head*self.head_dim)
+        return self.fc[-1](x)
+class feedforward(nn.Module):
+    def __init__(self,embed_dim,hidden_dim,dropout=0.1):
+        super(feedforward,self).__init__()
+        self.lin1 = nn.Linear(embed_dim, hidden_dim)
+        self.lin2 = nn.Linear(hidden_dim, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,x):
+        return self.lin2(self.dropout(F.relu(self.lin1(x))))
+class layernorm(nn.Module):
+    def __init__(self,embed_dim,eps=1e-6):
+        super(layernorm,self).__init__()
+        self.w = nn.Parameter(torch.ones(embed_dim))
+        self.b = nn.Parameter(torch.zeros(embed_dim))
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return self.w * ((x - mean) / (std + self.eps)) + self.b
+class layernorm_plus(nn.Module):
+    def __init__(self,eps=1e-6):
+        super(layernorm_plus,self).__init__()
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return ((x - mean) / (std + self.eps)) 
+class generator(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+    def forward(self,x):
+        return F.log_softmax(self.fc(x).squeeze(dim=-1),dim=-1)
+class generator_plus(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator_plus,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        return self.layernorm(self.fc(x).squeeze(dim=-1))
+class encoderlayer(nn.Module):
+    def __init__(self,head,embed_dim,hidden_dim,dropout=0.1):
+        super(encoderlayer,self).__init__()
+        self.norm = nn.ModuleList(layernorm(embed_dim) for _ in range(2))
+        self.attention = multi_attention(head, embed_dim, dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.feedforward = feedforward(embed_dim, hidden_dim)
+    def forward(self,x):
+        x_norm = self.norm[0](x)
+        x_bias = self.attention(x_norm,x_norm,x_norm)
+        x_1 = x_norm + self.dropout(x_bias)
+        x_norm_feed = self.norm[1](x_1) 
+        x_feed_bias = self.feedforward(x_norm_feed)
+        x_2 = self.dropout(x_feed_bias)
+        return(x_2)
+class Encoder(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+class Encoder_plus(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder_plus,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator_plus(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)        
+        x_3 = self.encoder[1](x_1)
+        x_5 = self.encoder[2](x_3)
+        return self.generator((x_5))
+def distance_simple(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+def distance_simple_improved(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+
+# 2、数据导入,是numpy类型的，使用时要转化为tensor
+data_group_in = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_input.npy')
+y_sort = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_target.npy')
+
+# 3、训练函数
+epoch = 500
+batch_size = 25
+length = data_group_in.shape[0]
+head = 1
+embed_dim = 1210
+dropout = 0.1
+hidden_dim = 256
+layer_num = 3
+lr = 0.01
+num = length // batch_size
+encoder_plus = Encoder_plus(layer_num, head, embed_dim, hidden_dim)
+optimizer_plus = optim.Adam(encoder_plus.parameters(),lr=0.001)
+
+parameter_list = []
+stk_len = 31
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        encoder_plus.train()
+        optimizer_plus.zero_grad()
+        y_pred = encoder_plus(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer_plus.step()
+        fc_grad = 0
+        else_grad = 0
+        for name,parameter in encoder_plus.named_parameters():
+            parameter_list.append((name,tuple(parameter.grad.data.shape),parameter.grad.data.norm().item()))
+            if name=='generator.fc.weight':
+                fc_grad += parameter.grad.norm()
+            else:
+                else_grad += parameter.grad.norm()
+        with torch.no_grad():
+            x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+            out_test = encoder_plus(x_test)
+            y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+            predict_loss = distance_simple(out_test, y_test)
+            random_loss = 0
+            for k in range(100):
+                temp = torch.range(0, (stk_len-1))
+                temp = temp[torch.randperm(temp.size(0))]
+                temp = temp.unsqueeze(dim=0)
+                random_loss += distance_simple(out_test, temp)
+            random_loss = random_loss / 100
+        # torch.set_printoptions(precision=6,  sci_mode=False)
+        print(f"Epoch {i}, Step {j},Loss: {loss.item():.6f},predict_loss: {predict_loss:.6f},random_loss: {random_loss:.6f},fc: {fc_grad:.6f},else: {else_grad:.6f}")
