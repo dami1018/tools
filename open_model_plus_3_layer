@@ -548,6 +548,7 @@ class MLP(nn.Module):
         self.relu = nn.ReLU()
         self.layernorm = layernorm_plus()
     def forward(self,x):
+        
         x1 = self.relu(self.lin(x))
         x2 = self.relu(self.lin(x1))
         x3 = self.lin2(x2)
@@ -693,3 +694,107 @@ for i in range(epoch):
     
         
        
+# mlp+attn
+class MLP(nn.Module):
+    def __init__(self,in_features=1210,out_features=1210,head=1,embed_dim=1210,dropout=0.1):
+        super(MLP,self).__init__()
+        self.attention = multi_attention(head, embed_dim, dropout)
+        self.lin = nn.Linear(in_features, out_features)
+        self.lin2 = nn.Linear(in_features, 1)
+        self.relu = nn.ReLU()
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        x = self.attention(x,x,x)
+        x1 = self.relu(self.lin(x))
+        x2 = self.relu(self.lin(x1))
+        x3 = self.lin2(x2)
+        return self.layernorm(x3.squeeze(dim=-1))
+data_group_in = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_input.npy')
+y_sort = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_target.npy') 
+model = MLP()
+stk_len = 31
+optimizer = optim.Adam(model.parameters(),lr=0.001)
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        model.train()
+        optimizer.zero_grad()
+        y_pred = model(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer.step()
+        else_grad = 0
+        for name,parameter in model.named_parameters():
+            else_grad += parameter.grad.norm()
+        with torch.no_grad():
+            x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+            out_test = encoder_plus(x_test)
+            y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+            predict_loss = distance_simple(out_test, y_test)
+            random_loss = 0
+            for k in range(100):
+                temp = torch.range(0, (stk_len-1))
+                temp = temp[torch.randperm(temp.size(0))]
+                temp = temp.unsqueeze(dim=0)
+                random_loss += distance_simple(out_test, temp)
+            random_loss = random_loss / 100
+        # torch.set_printoptions(precision=6,  sci_mode=False)
+        print(f"Epoch {i}, Step {j},Loss: {loss.item():.6f},predict_loss: {predict_loss:.6f},random_loss: {random_loss:.6f},all_grad: {else_grad:.6f}")
+
+
+# 增加mlp的层数
+class MLP(nn.Module):
+    def __init__(self,in_features=1210,out_features=1210):
+        super(MLP,self).__init__()
+        self.lin = nn.Linear(in_features, out_features)
+        self.lin0 = nn.Linear(in_features, out_features)
+        self.lin1 = nn.Linear(in_features, out_features)
+        self.lin2 = nn.Linear(in_features, out_features)
+        self.lin3 = nn.Linear(in_features, out_features)
+        self.lin4 = nn.Linear(in_features, 1)
+        self.relu = nn.ReLU()
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        x0 = self.relu(self.lin(x))
+        x1 = self.relu(self.lin0(x0))
+        x2 = self.relu(self.lin1(x1))
+        x3 = self.relu(self.lin2(x2))
+        x4 = self.relu(self.lin3(x3))
+        x5 = self.lin4(x4)
+        return self.layernorm(x5.squeeze(dim=-1))
+data_group_in = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_input.npy')
+y_sort = np.load(r'/Users/qinpeng/Desktop/python项目/天软/node_jfkd_target.npy') 
+model = MLP()
+stk_len = 31
+optimizer = optim.Adam(model.parameters(),lr=0.001)
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32)
+        model.train()
+        optimizer.zero_grad()
+        y_pred = model(data_group_in_pt)
+        loss = distance_simple(y_pred, y_sort_pt)
+        # loss.requires_grad_(True)
+        loss.backward()
+        optimizer.step()
+        else_grad = 0
+        for name,parameter in model.named_parameters():
+            else_grad += parameter.grad.norm()
+        with torch.no_grad():
+            x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32)
+            out_test = encoder_plus(x_test)
+            y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32)
+            predict_loss = distance_simple(out_test, y_test)
+            random_loss = 0
+            for k in range(100):
+                temp = torch.range(0, (stk_len-1))
+                temp = temp[torch.randperm(temp.size(0))]
+                temp = temp.unsqueeze(dim=0)
+                random_loss += distance_simple(out_test, temp)
+            random_loss = random_loss / 100
+        # torch.set_printoptions(precision=6,  sci_mode=False)
+        print(f"Epoch {i}, Step {j},Loss: {loss.item():.6f},predict_loss: {predict_loss:.6f},random_loss: {random_loss:.6f},all_grad: {else_grad:.6f}")
+    
