@@ -1,0 +1,722 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Feb  2 12:36:44 2025
+
+@author: qinpeng
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+x = np.arange(-100,100.01,0.01)
+x = np.array(x)
+x = x.reshape(-1,1)
+x.shape
+h1 = np.random.rand(1,5)
+h1.shape
+b1 = np.random.rand(1,5)
+y1 = x @ h1 + b1
+y1.shape
+y1 + b1
+y1 = x * h1 + b1
+y1.shape
+h2 = np.random.rand(5,5)
+b2 = np.random.rand(1,5)
+y2 = y1 @ h2 + b2
+h3 = np.random.rand(5,1)
+b3 = np.random.rand(1,1)
+y3 = y2 @ h3 + b3
+y3.shape
+
+y1 = np.maximum((x @ h1 + b1),0)
+y2 = np.maximum((y1 @ h2 + b2),0)
+y3 = np.maximum((y2 @ h3 + b3),0)
+
+u = np.ones((1,5))
+r = np.maximum(0,u)
+r.shape
+y3.shape
+plt.plot(x,y3)
+plt.plot(x,y2)
+plt.plot(x,y1)
+plt.show()
+
+x = np.arange(-10000,10000.01,0.01)
+x = np.array(x)
+x = x.reshape(-1,1)
+h1 = np.random.rand(1,1)
+b1 = np.random.rand(1,1)
+h2 = np.random.rand(1,1)
+b2 = np.random.rand(1,1)
+h3 = np.random.rand(1,1)
+b3 = np.random.rand(1,1)
+
+
+y1 = np.maximum((x @ h1 + b1),0)
+y2 = np.maximum((y1 @ h2 + b2),0)
+y3 = np.maximum((y2 @ h3 + b3),0)
+
+y1 = 1 / (1 + np.exp(-(x @ h1 + b1)))
+y2 = 1 / (1 + np.exp(-(y1 @ h2 + b2)))
+y3 = 1 / (1 + np.exp(-(y2 @ h3 + b3)))
+
+
+plt.plot(x,y3)
+plt.plot(x,y2)
+plt.plot(x,y1)
+
+plt.show()
+
+x = np.arange(-100,100.01,0.01)
+x = np.array(x)
+x = x.reshape(-1,1)
+h1 = np.random.rand(1,5)
+b1 = np.random.rand(1,5)
+h2 = np.random.rand(5,5)
+b2 = np.random.rand(1,5)
+h3 = np.random.rand(5,1)
+b3 = np.random.rand(1,1)
+
+
+y1 = np.maximum((x @ h1 + b1),0)
+y2 = np.maximum((y1 @ h2 + b2),0)
+y3 = np.maximum((y2 @ h3 + b3),0)
+
+y1 = 1 / (1 + np.exp(-(x @ h1 + b1)))
+y2 = 1 / (1 + np.exp(-(y1 @ h2 + b2)))
+y3 = 1 / (1 + np.exp(-(y2 @ h3 + b3)))
+
+
+plt.plot(x,y3)
+plt.plot(x,y2)
+plt.plot(x,y1)
+
+plt.show()
+
+
+import numpy as np
+from sklearn.datasets import make_blobs, make_circles, make_moons
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+# -*- coding: UTF-8 -*-
+'''
+定义多层感知器的模型组件，比如线性模型，Sigmoid函数等
+'''
+
+
+import torch
+import torch.nn.functional as F
+import numpy as np
+
+
+class Linear:
+    
+    def __init__(self, in_features, out_features, bias=True):
+        '''
+        模型参数初始化
+        需要注意的是，此次故意没做参数初始化的优化
+        '''
+        self.weight = torch.randn((in_features, out_features))
+        self.bias = torch.randn(out_features) if bias else None
+        
+    def __call__(self, x):
+        self.out = x @ self.weight
+        if self.bias is not None:
+            self.out += self.bias
+        return self.out
+    
+    def parameters(self):
+        '''
+        返回线性模型的参数，主要用于参数迭代更新
+        由于PyTorch的计算单元就是张量，
+        所以此次只需将不同参数简单合并成列表即可
+        '''
+        if self.bias is not None:
+            return [self.weight, self.bias]
+        return [self.weight]
+
+
+class Sigmoid:
+    
+    def __call__(self, x):
+        self.out = torch.sigmoid(x)
+        return self.out
+    
+    def parameters(self):
+        '''
+        Sigmoid函数没有模型参数
+        '''
+        return []
+
+
+class Tanh:
+    
+    def __call__(self, x):
+        self.out = torch.tanh(x)
+        return self.out
+    
+    def parameters(self):
+        '''
+        Tanh函数没有模型参数
+        '''
+        return []
+
+
+class Sequential:
+    
+    def __init__(self, layers):
+        self.layers = layers
+        
+    def __call__(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        self.out = x
+        return self.out
+    
+    def parameters(self):
+        '''
+        将各层的模型参数简单合并成列表即可
+        '''
+        return [p for layer in self.layers for p in layer.parameters()]
+    
+    def predict_proba(self, x):
+        '''
+        为了数据可视化，计算模型输出的概率
+        '''
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x).float()
+        logits = self(x)
+        self.proba = F.softmax(logits, dim=1).detach().numpy()
+        return self.proba
+def generate_data(n):
+    '''
+    产生数据
+    '''
+    np.random.seed(12046)
+    blobs = make_blobs(n_samples=n, centers=[[-2, -2], [2, 2]])
+    circles = make_circles(n_samples=n, factor=.4, noise=.05)
+    moons = make_moons(n_samples=n, noise=.05)
+    blocks = np.random.rand(n, 2) - 0.5
+    y = (blocks[:, 0] * blocks[:, 1] < 0) + 0
+    blocks = (blocks, y)
+    # 由于神经网络对数据的线性变换不稳定，因此对数据做归一化处理
+    scaler = StandardScaler()
+    blobs = (scaler.fit_transform(blobs[0]), blobs[1])
+    circles = (scaler.fit_transform(circles[0]), circles[1])
+    moons = (scaler.fit_transform(moons[0]), moons[1])
+    blocks = (scaler.fit_transform(blocks[0]), blocks[1])
+    return blobs, circles, moons, blocks
+
+def draw_data(ax, data):
+    '''
+    将数据可视化
+    '''
+    x, y = data
+    label1 = x[y > 0]
+    ax.scatter(label1[:, 0], label1[:, 1], marker='o')
+    label0 = x[y == 0]
+    ax.scatter(label0[:, 0], label0[:, 1], marker='^', color='k')
+    return ax
+
+def draw_model(ax, model):
+    '''
+    将模型的分离超平面可视化
+    '''
+    x1 = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 100)
+    x2 = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 100)
+    x1, x2 = np.meshgrid(x1, x2)
+    y = model.predict_proba(np.c_[x1.ravel(), x2.ravel()])[:, 1]
+    y = y.reshape(x1.shape)
+    ax.contourf(x1, x2, y, levels=[0, 0.5], colors=['gray'], alpha=0.4)
+    return ax
+
+def visualize(data):
+    '''
+    将结果可视化
+    '''
+    # 创建一个图形框
+    fig = plt.figure(figsize=(10, 10), dpi=80)
+    fig1 = plt.figure(figsize=(10, 10), dpi=80)
+    # 在图形框里画四幅图
+    for i in range(len(data)):
+        ax = fig.add_subplot(2, 2, i+1)
+        ax1 = fig1.add_subplot(2, 2, i+1)
+        draw_data(ax, data[i])
+        draw_data(ax1, data[i])
+        draw_model(ax1, train_logit(data[i]))
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        ax1.get_xaxis().set_visible(False)
+        ax1.get_yaxis().set_visible(False)
+    plt.show()
+
+# 将数据可视化
+import matplotlib.pyplot as plt
+
+
+
+data = generate_data(200)
+
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.show()
+
+from sklearn.linear_model import LogisticRegression
+def train_logit(data):
+    '''
+    训练逻辑回顾模型
+    '''
+    x, y = data
+    model = LogisticRegression()
+    model.fit(x, y)
+    return model
+
+# 将逻辑回归的结果可视化
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    draw_model(ax, train_logit(data[i]))
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.show()
+
+import torch
+import torch.nn.functional as F
+# from utils import Linear, Sigmoid, Sequential
+
+
+torch.manual_seed(12046)
+
+def define_mlp():
+    '''
+    定义多层感知器模型
+    '''
+    model = Sequential([
+        Linear(2, 4), Sigmoid(),
+        Linear(4, 4), Sigmoid(),
+        Linear(4, 2)
+    ])
+    # 对于模型参数，需要记录它们的梯度（为反向传播做准备）
+    for p in model.parameters():
+        p.requires_grad = True
+    return model
+
+def train_mlp(model, data):
+    '''
+    训练多层感知器模型
+    '''
+    # 标准随机梯度下降法的超参数
+    max_steps = 40000
+    batch_size = 20
+    lossi = []
+    x, y = torch.tensor(data[0]).float(), torch.tensor(data[1])
+    _prob = torch.ones(x.shape[0]) / x.shape[0]
+
+    for i in range(max_steps):
+        # 构造批次训练数据
+        ## 不放回的随机抽样
+        ix = _prob.multinomial(batch_size)
+        xb = x[ix]
+        yb = y[ix]
+        # 向前传播
+        logits = model(xb)
+        loss = F.cross_entropy(logits, yb)
+        # 反向传播
+        loss.backward()
+        # 更新模型参数
+        ## 学习速率衰减
+        learning_rate = 0.1 if i < 20000 else 0.01
+        with torch.no_grad():
+            for p in model.parameters():
+                p -= learning_rate * p.grad
+                p.grad = None
+        lossi.append(loss.item())
+    return lossi
+
+# 将多层感知器的结果可视化
+loss = {}
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    # 搭建多层感知器模型
+    model = define_mlp()
+    # 训练多层感知器模型
+    loss[i] = train_mlp(model, data[i])
+    draw_model(ax, model)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.savefig('mlp_result.png', dpi=200)
+plt.show()
+
+
+
+# 关键的换成relu
+import numpy as np
+from sklearn.datasets import make_blobs, make_circles, make_moons
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+# -*- coding: UTF-8 -*-
+'''
+定义多层感知器的模型组件，比如线性模型，Sigmoid函数等
+'''
+
+
+import torch
+import torch.nn.functional as F
+import numpy as np
+
+
+class Linear:
+    
+    def __init__(self, in_features, out_features, bias=True):
+        '''
+        模型参数初始化
+        需要注意的是，此次故意没做参数初始化的优化
+        '''
+        self.weight = torch.randn((in_features, out_features))
+        self.bias = torch.randn(out_features) if bias else None
+        
+    def __call__(self, x):
+        self.out = x @ self.weight
+        if self.bias is not None:
+            self.out += self.bias
+        return self.out
+    
+    def parameters(self):
+        '''
+        返回线性模型的参数，主要用于参数迭代更新
+        由于PyTorch的计算单元就是张量，
+        所以此次只需将不同参数简单合并成列表即可
+        '''
+        if self.bias is not None:
+            return [self.weight, self.bias]
+        return [self.weight]
+
+
+class Sigmoid:
+    
+    def __call__(self, x):
+        self.out = torch.sigmoid(x)
+        return self.out
+    
+    def parameters(self):
+        '''
+        Sigmoid函数没有模型参数
+        '''
+        return []
+
+class Relu:
+    
+    def __call__(self, x):
+        self.out = torch.relu(x)
+        return self.out
+    
+    def parameters(self):
+        '''
+        Sigmoid函数没有模型参数
+        '''
+        return []
+
+class Tanh:
+    
+    def __call__(self, x):
+        self.out = torch.tanh(x)
+        return self.out
+    
+    def parameters(self):
+        '''
+        Tanh函数没有模型参数
+        '''
+        return []
+
+
+class Sequential:
+    
+    def __init__(self, layers):
+        self.layers = layers
+        
+    def __call__(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        self.out = x
+        return self.out
+    
+    def parameters(self):
+        '''
+        将各层的模型参数简单合并成列表即可
+        '''
+        return [p for layer in self.layers for p in layer.parameters()]
+    
+    def predict_proba(self, x):
+        '''
+        为了数据可视化，计算模型输出的概率
+        '''
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x).float()
+        logits = self(x)
+        self.proba = F.softmax(logits, dim=1).detach().numpy()
+        return self.proba
+def generate_data(n):
+    '''
+    产生数据
+    '''
+    np.random.seed(12046)
+    blobs = make_blobs(n_samples=n, centers=[[-2, -2], [2, 2]])
+    circles = make_circles(n_samples=n, factor=.4, noise=.05)
+    moons = make_moons(n_samples=n, noise=.05)
+    blocks = np.random.rand(n, 2) - 0.5
+    y = (blocks[:, 0] * blocks[:, 1] < 0) + 0
+    blocks = (blocks, y)
+    # 由于神经网络对数据的线性变换不稳定，因此对数据做归一化处理
+    scaler = StandardScaler()
+    blobs = (scaler.fit_transform(blobs[0]), blobs[1])
+    circles = (scaler.fit_transform(circles[0]), circles[1])
+    moons = (scaler.fit_transform(moons[0]), moons[1])
+    blocks = (scaler.fit_transform(blocks[0]), blocks[1])
+    return blobs, circles, moons, blocks
+
+def draw_data(ax, data):
+    '''
+    将数据可视化
+    '''
+    x, y = data
+    label1 = x[y > 0]
+    ax.scatter(label1[:, 0], label1[:, 1], marker='o')
+    label0 = x[y == 0]
+    ax.scatter(label0[:, 0], label0[:, 1], marker='^', color='k')
+    return ax
+
+def draw_model(ax, model):
+    '''
+    将模型的分离超平面可视化
+    '''
+    x1 = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 100)
+    x2 = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 100)
+    x1, x2 = np.meshgrid(x1, x2)
+    y = model.predict_proba(np.c_[x1.ravel(), x2.ravel()])[:, 1]
+    y = y.reshape(x1.shape)
+    ax.contourf(x1, x2, y, levels=[0, 0.5], colors=['gray'], alpha=0.4)
+    return ax
+
+def visualize(data):
+    '''
+    将结果可视化
+    '''
+    # 创建一个图形框
+    fig = plt.figure(figsize=(10, 10), dpi=80)
+    fig1 = plt.figure(figsize=(10, 10), dpi=80)
+    # 在图形框里画四幅图
+    for i in range(len(data)):
+        ax = fig.add_subplot(2, 2, i+1)
+        ax1 = fig1.add_subplot(2, 2, i+1)
+        draw_data(ax, data[i])
+        draw_data(ax1, data[i])
+        draw_model(ax1, train_logit(data[i]))
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+        ax1.get_xaxis().set_visible(False)
+        ax1.get_yaxis().set_visible(False)
+    plt.show()
+
+# 将数据可视化
+import matplotlib.pyplot as plt
+
+
+
+data = generate_data(200)
+
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.show()
+
+from sklearn.linear_model import LogisticRegression
+def train_logit(data):
+    '''
+    训练逻辑回顾模型
+    '''
+    x, y = data
+    model = LogisticRegression()
+    model.fit(x, y)
+    return model
+
+# 将逻辑回归的结果可视化
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    draw_model(ax, train_logit(data[i]))
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.show()
+
+import torch
+import torch.nn.functional as F
+# from utils import Linear, Sigmoid, Sequential
+
+
+torch.manual_seed(12046)
+
+def define_mlp():
+    '''
+    定义多层感知器模型
+    '''
+    model = Sequential([
+        Linear(2, 4), Relu(),
+        Linear(4, 4), Relu(),
+        Linear(4, 4), Relu(),
+        Linear(4, 2)
+    ])
+    # 对于模型参数，需要记录它们的梯度（为反向传播做准备）
+    for p in model.parameters():
+        p.requires_grad = True
+    return model
+
+def train_mlp(model, data):
+    '''
+    训练多层感知器模型
+    '''
+    # 标准随机梯度下降法的超参数
+    max_steps = 40000
+    batch_size = 20
+    lossi = []
+    x, y = torch.tensor(data[0]).float(), torch.tensor(data[1])
+    _prob = torch.ones(x.shape[0]) / x.shape[0]
+
+    for i in range(max_steps):
+        # 构造批次训练数据
+        ## 不放回的随机抽样
+        ix = _prob.multinomial(batch_size)
+        xb = x[ix]
+        yb = y[ix]
+        # 向前传播
+        logits = model(xb)
+        loss = F.cross_entropy(logits, yb)
+        # 反向传播
+        loss.backward()
+        # 更新模型参数
+        ## 学习速率衰减
+        learning_rate = 0.1 if i < 20000 else 0.01
+        with torch.no_grad():
+            for p in model.parameters():
+                p -= learning_rate * p.grad
+                p.grad = None
+        lossi.append(loss.item())
+    return lossi
+
+# 将多层感知器的结果可视化
+loss = {}
+fig = plt.figure(figsize=(10, 10), dpi=80)
+for i in range(len(data)):
+    ax = fig.add_subplot(2, 2, i+1)
+    draw_data(ax, data[i])
+    # 搭建多层感知器模型
+    model = define_mlp()
+    # 训练多层感知器模型
+    loss[i] = train_mlp(model, data[i])
+    draw_model(ax, model)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.savefig('mlp_result.png', dpi=200)
+plt.show()
+
+# 逐步观察边界的变化
+def draw_model(ax, model):
+    '''
+    将模型的分离超平面可视化
+    '''
+    x1 = np.linspace(ax.get_xlim()[0], ax.get_xlim()[1], 100)
+    x2 = np.linspace(ax.get_ylim()[0], ax.get_ylim()[1], 100)
+    x1, x2 = np.meshgrid(x1, x2)
+    y = model.predict_proba(np.c_[x1.ravel(), x2.ravel()])[:, 1]
+    y = y.reshape(x1.shape)
+    ax.contourf(x1, x2, y, levels=[0, 0.5], colors=['gray'], alpha=0.4)
+    return ax
+h1 = np.random.rand(2,2)
+b1 = np.random.rand(1,2)
+def project(x):
+    x1 = np.maximum((x @ h1 + b1),0)
+    return x1
+x = np.linspace(-1000, 1000,1000)
+y = np.linspace(-1000, 1000,1000)
+x,y = np.meshgrid(x,y)
+z = project(np.c_[x.ravel(),y.ravel()])
+z = [1 if a[0]> a[1] else 0 for a in z]
+z = np.array(z)
+z = z.reshape(x.shape)
+ax = plt.gca()
+ax.contourf(x, y, z, levels=[0.5, 1.5], colors=['gray'], alpha=0.4)
+plt.show()
+
+def project(x):
+    x1 = 1/ (1 + np.exp(-(x @ h1 + b1)))
+    return x1
+x = np.linspace(-10, 10,100)
+y = np.linspace(-10, 10,100)
+x,y = np.meshgrid(x,y)
+z = project(np.c_[x.ravel(),y.ravel()])
+z = [1 if (a[0]-0.5)> a[1] else 0 for a in z]
+z = np.array(z)
+z = z.reshape(x.shape)
+ax = plt.gca()
+ax.contourf(x, y, z, levels=[0.5, 1.5], colors=['gray'], alpha=0.4)
+plt.show()
+
+def project(x):
+    x1 = x @ h1 + b1
+    return x1
+x = np.linspace(-1000, 1000,1000)
+y = np.linspace(-1000, 1000,1000)
+x,y = np.meshgrid(x,y)
+z = project(np.c_[x.ravel(),y.ravel()])
+z = [1 if a[0]> a[1] else 0 for a in z]
+z = np.array(z)
+z = z.reshape(x.shape)
+ax = plt.gca()
+ax.contourf(x, y, z, levels=[0.5, 1.5], colors=['gray'], alpha=0.4)
+plt.show()
+
+
+x = np.arange(-10000,10000.01,0.01)
+x = np.array(x)
+x = x.reshape(-1,1)
+h1 = np.random.rand(1,5)
+b1 = np.random.rand(1,5)
+h2 = np.random.rand(1,1)
+b2 = np.random.rand(1,1)
+h3 = np.random.rand(1,1)
+b3 = np.random.rand(1,1)
+
+
+y1 = np.maximum((x @ h1 + b1),0)
+y2 = np.maximum((y1 @ h2 + b2),0)
+y3 = np.maximum((y2 @ h3 + b3),0)
+
+x = np.linspace(-10,10,2000)
+x = np.array(x)
+x = x.reshape(-1,1)
+h1 = np.random.rand(1,5)
+b1 = np.random.rand(1,5)
+h2 = np.random.rand(5,1)
+b2 = np.random.rand(1,1)
+y1 = np.maximum((x @ h1 + b1),0)
+y2 = np.maximum((y1 @ h2 + b2),0)
+y2 = y1 @ h2 + b2
+plt.plot(x,y1)
+plt.show()
+h1
+b1
+sol = (-b1)/h1
+h2
+b2
+# 900 到 1100之间
+x[900:1100]
