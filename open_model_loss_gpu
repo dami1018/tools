@@ -1,0 +1,241 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Feb  8 19:02:01 2025
+
+@author: 1
+"""
+
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import time
+# 1、模型定义
+def self_attention(q,k,v):
+    dim = torch.tensor(q.size(-1))
+    weight = q @ k.transpose(-2,-1)/torch.sqrt(dim)
+    weight_prob = F.log_softmax(weight,dim=-1)
+    return weight_prob @ v
+class multi_attention(nn.Module):
+    def __init__(self,head,embed_dim,dropout):
+        super(multi_attention,self).__init__()
+        self.fc = nn.ModuleList(nn.Linear(embed_dim, embed_dim) for _ in range(4))
+        self.head_dim = embed_dim // head
+        self.head = head
+        self.embed_dim = embed_dim
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,q,k,v):
+        batch_num = q.size(0)
+        q,k,v = [ l(x).view(batch_num,-1,self.head,self.head_dim).transpose(1,2) for l,x in zip(self.fc,(q,k,v))]
+        x = self_attention(q, k, v)
+        x = x.transpose(1,2).contiguous().view(batch_num,-1,self.head*self.head_dim)
+        return self.fc[-1](x)
+class feedforward(nn.Module):
+    def __init__(self,embed_dim,hidden_dim,dropout=0.1):
+        super(feedforward,self).__init__()
+        self.lin1 = nn.Linear(embed_dim, hidden_dim)
+        self.lin2 = nn.Linear(hidden_dim, embed_dim)
+        self.dropout = nn.Dropout(p=dropout)
+    def forward(self,x):
+        return self.lin2(self.dropout(F.relu(self.lin1(x))))
+class layernorm(nn.Module):
+    def __init__(self,embed_dim,eps=1e-6):
+        super(layernorm,self).__init__()
+        self.w = nn.Parameter(torch.ones(embed_dim))
+        self.b = nn.Parameter(torch.zeros(embed_dim))
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return self.w * ((x - mean) / (std + self.eps)) + self.b
+class layernorm_plus(nn.Module):
+    def __init__(self,eps=1e-6):
+        super(layernorm_plus,self).__init__()
+        self.eps = eps
+    def forward(self,x):
+        mean = x.mean(dim=-1,keepdim=True)
+        std = x.std(dim=-1,keepdim=True)
+        return ((x - mean) / (std + self.eps)) 
+class generator(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+    def forward(self,x):
+        return F.log_softmax(self.fc(x).squeeze(dim=-1),dim=-1)
+class generator_plus(nn.Module):
+    def __init__(self,embed_dim,out_dim):
+        super(generator_plus,self).__init__()
+        self.fc = nn.Linear(embed_dim, out_dim)
+        self.layernorm = layernorm_plus()
+    def forward(self,x):
+        return self.layernorm(self.fc(x).squeeze(dim=-1))
+class encoderlayer(nn.Module):
+    def __init__(self,head,embed_dim,hidden_dim,dropout=0.1):
+        super(encoderlayer,self).__init__()
+        self.norm = nn.ModuleList(layernorm(embed_dim) for _ in range(2))
+        self.attention = multi_attention(head, embed_dim, dropout)
+        self.dropout = nn.Dropout(p=dropout)
+        self.feedforward = feedforward(embed_dim, hidden_dim)
+    def forward(self,x):
+        x_norm = self.norm[0](x)
+        x_bias = self.attention(x_norm,x_norm,x_norm)
+        x_1 = x + self.dropout(x_bias)
+        x_norm_feed = self.norm[1](x_1) 
+        x_feed_bias = self.feedforward(x_norm_feed)
+        x_2 = x_1 + self.dropout(x_feed_bias)
+        return(x_2)
+class Encoder(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+class Encoder_plus(nn.Module):
+    def __init__(self,layer_num,head,embed_dim,hidden_dim,out_dim=1,dropout=0.1):
+        super(Encoder_plus,self).__init__()
+        self.encoder = nn.ModuleList(encoderlayer(head, embed_dim, hidden_dim) for _ in range(layer_num))
+        self.generator = generator_plus(embed_dim,out_dim)
+    def forward(self,x):
+        x_1 = self.encoder[0](x)
+        x_2 = self.encoder[1](x_1)
+        return self.generator((x_2))
+def distance_simple(x,y):
+    loss = torch.tensor(0,dtype=torch.float32,device=x.device)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+def distance_simple_improved(x,y):
+    loss = torch.tensor(0,dtype=torch.float32)
+    x = x.view(-1,x.size(-1))
+    y = y.view(-1,y.size(-1))
+    # res = []
+    for k in range(x.size(0)):
+        for i in range(x.size(1)):
+            for j in range(i+1,x.size(1)):
+                # res.append((k,i,j,loss.item()))
+                if (~torch.isnan(x[k,i]))&(~torch.isnan(x[k,j])):
+                    loss += F.relu(-(x[k,i] - x[k,j])*(y[k,i]-y[k,j])/torch.abs(y[k,i]-y[k,j]))            
+    # return loss
+    return (2*loss/(x.size(1)*(x.size(1)-1)*x.size(0)))
+
+def distance_simple_gpu(x,y):
+    operator = torch.zeros(x.size(-1),x.size(-1)).to(device)
+    operator.fill_diagonal_(-1)
+    operator[:,0] = 1
+    operator[0,0] = 0
+    data_x = []
+    data_x.append(x.unsqueeze(2))
+    for i in range(x.size(1)-1):
+        temp = x.clone()
+        temp[:,0],temp[:,i+1] = temp[:,i+1].clone(),temp[:,0].clone()
+        data_x.append(temp.unsqueeze(2))
+    value_x = torch.cat(data_x,dim=-1)
+    result_x = operator @ value_x
+    data_y = []
+    data_y.append(y.unsqueeze(2))
+    for i in range(x.size(1)-1):
+        temp = y.clone()
+        temp[:,0],temp[:,i+1] = temp[:,i+1].clone(),temp[:,0].clone()
+        data_y.append(temp.unsqueeze(2))
+    value_y = torch.cat(data_y,dim=-1)
+    result_y = operator @ value_y
+    result_y[:,0,:] = 1
+    loss = F.relu(-(result_x * result_y)/torch.abs(result_y))
+    loss_value = loss.mean() * loss.size(1) / (loss.size(1) -1) 
+    return loss_value
+# distance_simple_gpu(x, y)          
+import numpy as np
+data_group_in = np.load(r'E:\work\股价预测\神经网络和股票分类\node_rqgf_input.npy')
+y_sort = np.load(r'E:\work\股价预测\神经网络和股票分类\node_rqgf_target.npy')
+# data_group_in.shape
+        
+# 重新训练
+# 检查 GPU 
+'''
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# 打印 GPU 信息
+print(f"Using device: {device}")
+# 检查显存使用情况
+print(f"Allocated: {torch.cuda.memory_allocated(device) / 1024**2} MB")
+print(f"Cached: {torch.cuda.memory_reserved(device) / 1024**2} MB")
+# 清空缓存
+torch.cuda.empty_cache()
+'''
+
+# model.to(device)
+# model.device
+# device = next(model.parameters()).device
+# print(f"模型位于设备: {device}")
+# i = 1
+# j = 1
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = 'cpu'
+epoch = 500
+batch_size = 25
+length = data_group_in.shape[0]
+head = 1
+embed_dim = 1210
+dropout = 0.1
+hidden_dim = 256
+layer_num = 2
+lr = 0.01
+num = length // batch_size
+stk_len = 86
+model =  Encoder_plus(layer_num, head, embed_dim, hidden_dim).to(device)
+# 如果换到gpu上那么就必须重新导入optimizer
+optimizer = optim.Adam(model.parameters(),lr=0.001)
+
+for i in range(epoch): 
+    for j in range(num-1):
+        data_group_in_pt = torch.tensor(data_group_in[j*batch_size:(j+1)*batch_size,:,:],dtype=torch.float32).to(device)
+        y_sort_pt = torch.tensor(y_sort[j*batch_size:(j+1)*batch_size,:],dtype=torch.float32).to(device)
+        model.train()
+        optimizer.zero_grad()
+        # start_time = time.time()
+        y_pred = model(data_group_in_pt)
+        # end_time = time.time()
+        # print(f'model_cost_time:{end_time - start_time}')
+        # start_time = time.time()
+        loss = distance_simple_gpu(y_pred, y_sort_pt)
+        # end_time = time.time()
+        # print(f'loss_cost_time:{end_time - start_time}')
+        # start_time = time.time()
+        loss.backward()
+        # end_time = time.time()
+        # print(f'back_cost_time:{end_time - start_time}')
+        # start_time = time.time()
+        optimizer.step()
+        # end_time = time.time()
+        # print(f'update_cost_time:{end_time - start_time}')
+        else_grad = 0
+        for name,parameter in model.named_parameters():
+            else_grad += parameter.grad.norm()
+        with torch.no_grad():
+            x_test = torch.tensor(data_group_in[225:226,:,:],dtype=torch.float32,device=device)
+            out_test = model(x_test)
+            y_test = torch.tensor(y_sort[225:226,:],dtype=torch.float32).to(device)
+            predict_loss = distance_simple_gpu(out_test, y_test)
+            random_loss = 0
+            for k in range(100):
+                temp = torch.range(0, (stk_len-1)).to(device)
+                temp = temp[torch.randperm(temp.size(0))]
+                temp = temp.unsqueeze(dim=0)
+                random_loss += distance_simple_gpu(out_test, temp)
+            random_loss = random_loss / 100
+        # torch.set_printoptions(precision=6,  sci_mode=False)
+        print(f"Epoch {i}, Step {j},Loss: {loss.item():.6f},predict_loss: {predict_loss:.6f},random_loss: {random_loss:.6f},all_grad: {else_grad:.6f}")
+
+
